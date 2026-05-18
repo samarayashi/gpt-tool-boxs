@@ -1,0 +1,50 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build / generated output
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+
+# Chrome extension packages
+*.crx
+*.pem
+*.zip
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Temporary files
+.cache/
+.tmp/
+tmp/
+temp/

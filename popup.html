@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatGPT Batch Delete</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>ChatGPT Batch Delete</h1>
+
+    <div id="status-bar" class="status-bar hidden" role="status" aria-live="polite"></div>
+
+    <div class="toolbar">
+      <label class="select-all-label">
+        <input type="checkbox" id="select-all"> Select All
+      </label>
+      <div class="toolbar-actions">
+        <button id="btn-load-all" class="btn-secondary" type="button">Load All</button>
+        <button id="btn-delete" class="btn-delete" type="button" disabled>Delete Selected</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <input type="text" id="search-input" placeholder="Filter conversations...">
+    </div>
+
+    <div id="conversation-list" class="conversation-list">
+      <div class="loading">Loading conversations...</div>
+    </div>
+
+    <div id="total-info" class="total-info"></div>
+  </div>
+
+  <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-message">
+    <div class="modal-content">
+      <p id="confirm-message"></p>
+      <div class="modal-actions">
+        <button id="btn-confirm-yes" class="btn-delete" type="button">Confirm Delete</button>
+        <button id="btn-confirm-no" class="btn-cancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
