@@ -3,11 +3,13 @@ import {
   DELETE_CONCURRENCY,
   MOVE_CONCURRENCY,
   fetchConversations,
+  fetchConversationDetail,
   fetchProjects,
   createProject,
   deleteConversation,
   moveConversationToProject,
   getAccessToken,
+  summarizeConversation,
 } from './chatgpt-api.js';
 import { runWithQueue } from './task-queue.js';
 import { openConversationInBackgroundTab } from './tab-navigation.js';
@@ -17,19 +19,23 @@ import {
   getSearchQuery,
   hideDeleteConfirmation,
   getMemoryScope,
+  hidePreviewModal,
   hideProjectModal,
   hideStatus,
   isInProject,
   renderList,
   renderProjectList,
+  setExpandedPreview,
   setLoadingMessage,
   setNewProjectFormVisible,
   setProjectListMessage,
   setProjectNameMap,
   showDeleteConfirmation,
+  showPreviewModal,
   showProjectModal,
   showStatus,
   updateModeSwitch,
+  updatePreviewStyleSwitch,
   updateProjectConfirm,
   updateToolbar,
   updateTotalInfo,
@@ -55,6 +61,10 @@ const state = {
   projectsLoaded: false,
   pickerChoice: null,
   hideInProject: false,
+  previewStyle: 'inline',
+  expandedId: null,
+  previewModalId: null,
+  previewCache: new Map(),
 };
 
 function isBusy() {
@@ -76,6 +86,7 @@ function refreshFilteredConversations() {
 
 function updateViewState() {
   updateModeSwitch({ mode: state.mode, isBusy: isBusy() });
+  updatePreviewStyleSwitch({ style: state.previewStyle, isBusy: isBusy() });
   updateToolbar({
     conversations: state.filteredConversations,
     selectedIds: state.selectedIds,
@@ -109,6 +120,10 @@ function removeConversations(ids) {
   );
   state.offset = state.conversations.length;
   ids.forEach((id) => state.selectedIds.delete(id));
+  if (state.expandedId && idSet.has(state.expandedId)) {
+    state.expandedId = null;
+    setExpandedPreview(null, null);
+  }
   refreshFilteredConversations();
 }
 
@@ -197,25 +212,108 @@ async function loadAllConversations() {
   }
 }
 
-async function handleConversationListClick(event) {
+function handleConversationListClick(event) {
   if (isBusy()) return;
 
+  // "Open full chat" button lives inside the inline preview (a sibling of the row).
+  const openBtn = event.target.closest('.preview-open');
+  if (openBtn) {
+    openInTab(openBtn.dataset.id);
+    return;
+  }
+
   const item = event.target.closest('.conversation-item');
-  if (!item) return;
+  if (!item) return; // clicks inside the inline preview text land here and do nothing
 
   const checkbox = item.querySelector('input[type="checkbox"]');
-
   if (event.target === checkbox) {
     setSelection(item.dataset.id, checkbox.checked);
     return;
   }
 
+  activatePreview(item.dataset.id);
+}
+
+async function openInTab(id) {
   try {
-    await openConversationInBackgroundTab(item.dataset.id);
-    showStatus('Conversation opened in a background tab.', 'success');
+    await openConversationInBackgroundTab(id);
+    showStatus('Opened in a background tab.', 'success');
   } catch (err) {
     showStatus(err.message, 'error');
   }
+}
+
+// --- Conversation preview ---
+
+function activatePreview(id) {
+  if (state.previewStyle === 'modal') {
+    openPreviewModal(id);
+  } else {
+    toggleInlinePreview(id);
+  }
+}
+
+async function loadSummary(id) {
+  if (state.previewCache.has(id)) return state.previewCache.get(id);
+  const token = await getAccessToken();
+  const detail = await fetchConversationDetail(token, id);
+  const summary = summarizeConversation(detail);
+  state.previewCache.set(id, summary);
+  return summary;
+}
+
+async function toggleInlinePreview(id) {
+  if (state.expandedId === id) {
+    state.expandedId = null;
+    setExpandedPreview(null, null);
+    renderList(state.filteredConversations, state.selectedIds);
+    return;
+  }
+
+  state.expandedId = id;
+  const cached = state.previewCache.get(id) || null;
+  setExpandedPreview(id, cached);
+  renderList(state.filteredConversations, state.selectedIds);
+  if (cached) return;
+
+  try {
+    const summary = await loadSummary(id);
+    if (state.expandedId === id) {
+      setExpandedPreview(id, summary);
+      renderList(state.filteredConversations, state.selectedIds);
+    }
+  } catch (err) {
+    if (state.expandedId === id) {
+      setExpandedPreview(id, { error: err.message });
+      renderList(state.filteredConversations, state.selectedIds);
+    }
+  }
+}
+
+async function openPreviewModal(id) {
+  state.previewModalId = id;
+  const cached = state.previewCache.get(id) || null;
+  showPreviewModal(id, cached);
+  if (cached) return;
+
+  try {
+    const summary = await loadSummary(id);
+    if (state.previewModalId === id) showPreviewModal(id, summary);
+  } catch (err) {
+    if (state.previewModalId === id) showPreviewModal(id, { error: err.message });
+  }
+}
+
+function setPreviewStyle(style) {
+  if (isBusy() || state.previewStyle === style) return;
+
+  state.previewStyle = style;
+  // Reset any open preview so switching styles starts clean.
+  state.expandedId = null;
+  setExpandedPreview(null, null);
+  hidePreviewModal();
+  renderList(state.filteredConversations, state.selectedIds);
+  updateViewState();
 }
 
 function setSelection(id, selected) {
@@ -594,6 +692,13 @@ els.newProjectName.addEventListener('input', handleNewProjectInput);
 els.projectConfirm.addEventListener('click', handleProjectConfirm);
 els.projectCancel.addEventListener('click', hideProjectModal);
 els.hideInProject.addEventListener('change', handleHideInProjectChange);
+
+els.previewInlineBtn.addEventListener('click', () => setPreviewStyle('inline'));
+els.previewModalBtn.addEventListener('click', () => setPreviewStyle('modal'));
+els.previewClose.addEventListener('click', hidePreviewModal);
+els.previewOpen.addEventListener('click', () => {
+  if (els.previewOpen.dataset.id) openInTab(els.previewOpen.dataset.id);
+});
 
 loadConversations();
 loadProjectTags();

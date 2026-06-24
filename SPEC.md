@@ -42,6 +42,8 @@
 
 > 依據：root `GET /conversations` 的每筆對話帶 `gizmo_id`（HAR 實測 28 筆中 3 筆非空）。`g-p-…`＝專案（snorlax），`g-<hex>`＝自訂 GPT。僅 `g-p-…` 視為「在專案內」。
 
+8.（追加）**對話預覽（取代點列開分頁）**：點對話列不再開背景分頁（易誤觸跳一堆分頁），改為在 popup 內預覽「標題＋第一則使用者訊息＋最新一則回覆」。提供切換鈕 `Inline ｜ Popup` 兩種呈現（行內展開 / 彈窗），供實機比較後再決定保留哪個。預覽內再提供「Open full chat ↗」才開背景分頁。資料來源 `GET /backend-api/conversation/{id}` → `summarizeConversation()` 解析 `mapping`（過濾 `role∈{user,assistant}` 且 `content_type==='text'`），結果快取避免重複請求。
+
 ### 2.2 本期不做（Out of scope）
 - 從專案中「移出」對話、在專案之間搬移、重新命名／刪除專案。
 - 編輯專案指示（custom instructions）、上傳檔案到專案。

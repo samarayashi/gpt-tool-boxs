@@ -22,6 +22,13 @@ export const els = {
   newProjectName: document.getElementById('new-project-name'),
   projectConfirm: document.getElementById('btn-project-confirm'),
   projectCancel: document.getElementById('btn-project-cancel'),
+  previewInlineBtn: document.getElementById('preview-inline'),
+  previewModalBtn: document.getElementById('preview-modal-btn'),
+  previewModal: document.getElementById('preview-modal'),
+  previewModalTitle: document.getElementById('preview-modal-title'),
+  previewModalBody: document.getElementById('preview-modal-body'),
+  previewOpen: document.getElementById('btn-preview-open'),
+  previewClose: document.getElementById('btn-preview-close'),
 };
 
 const STATUS_AUTO_HIDE_MS = 3500;
@@ -44,6 +51,16 @@ export function isInProject(conversation) {
 function getProjectTagName(conversation) {
   if (!isInProject(conversation)) return null;
   return projectNameMap.get(conversation.gizmo_id) || 'Project';
+}
+
+// Inline preview state: which row is expanded and its summary (null = loading,
+// { error } = failed, otherwise a summary from summarizeConversation()).
+let expandedPreviewId = null;
+let expandedPreviewState = null;
+
+export function setExpandedPreview(id, summaryState) {
+  expandedPreviewId = id;
+  expandedPreviewState = summaryState;
 }
 
 export function getSearchQuery() {
@@ -99,9 +116,95 @@ export function appendConversationItems(conversations, selectedIds) {
   const fragment = document.createDocumentFragment();
   conversations.forEach((conversation) => {
     fragment.append(createConversationItem(conversation, selectedIds));
+    if (conversation.id === expandedPreviewId) {
+      fragment.append(buildInlinePreview(conversation.id, expandedPreviewState));
+    }
   });
 
   els.list.append(fragment);
+}
+
+function buildInlinePreview(id, summaryState) {
+  const box = document.createElement('div');
+  box.className = 'conv-preview';
+  box.append(...buildPreviewContent(id, summaryState));
+  return box;
+}
+
+// Shared by inline preview and the preview modal. Returns an array of nodes.
+function buildPreviewContent(id, summaryState) {
+  if (summaryState === null) {
+    const loading = document.createElement('div');
+    loading.className = 'preview-loading';
+    loading.textContent = 'Loading preview...';
+    return [loading];
+  }
+
+  if (summaryState.error) {
+    const err = document.createElement('div');
+    err.className = 'preview-error';
+    err.textContent = summaryState.error;
+    return [err];
+  }
+
+  const nodes = [];
+  const addSection = (label, text) => {
+    if (!text) return;
+    const section = document.createElement('div');
+    section.className = 'preview-section';
+    const head = document.createElement('div');
+    head.className = 'preview-role';
+    head.textContent = label;
+    const body = document.createElement('div');
+    body.className = 'preview-text';
+    body.textContent = text;
+    section.append(head, body);
+    nodes.push(section);
+  };
+
+  addSection('First message', summaryState.firstUser);
+  addSection('Latest reply', summaryState.lastAssistant);
+
+  if (nodes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'preview-loading';
+    empty.textContent = 'No text preview available.';
+    nodes.push(empty);
+  }
+
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'preview-open';
+  open.dataset.id = id;
+  open.textContent = 'Open full chat ↗';
+  nodes.push(open);
+
+  return nodes;
+}
+
+export function updatePreviewStyleSwitch({ style, isBusy }) {
+  const inline = style === 'inline';
+  els.previewInlineBtn.classList.toggle('active', inline);
+  els.previewModalBtn.classList.toggle('active', !inline);
+  els.previewInlineBtn.disabled = isBusy;
+  els.previewModalBtn.disabled = isBusy;
+}
+
+export function showPreviewModal(id, summaryState) {
+  els.previewModalTitle.textContent =
+    summaryState && !summaryState.error ? summaryState.title : 'Preview';
+  // The modal has its own footer "Open full chat" button; drop the inline one.
+  const content = buildPreviewContent(id, summaryState).filter(
+    (node) => !node.classList?.contains('preview-open')
+  );
+  els.previewModalBody.replaceChildren(...content);
+  els.previewOpen.dataset.id = id || '';
+  els.previewOpen.classList.toggle('hidden', !summaryState || !!summaryState.error);
+  els.previewModal.classList.remove('hidden');
+}
+
+export function hidePreviewModal() {
+  els.previewModal.classList.add('hidden');
 }
 
 export function updateModeSwitch({ mode, isBusy }) {

@@ -35,6 +35,14 @@
       <input type="checkbox" id="hide-in-project"> Hide conversations already in a project
     </label>
 
+    <div class="preview-style-row">
+      <span class="preview-style-label">Preview on click:</span>
+      <div class="preview-style-switch" role="tablist" aria-label="Preview style">
+        <button id="preview-inline" class="preview-style-btn active" type="button">Inline</button>
+        <button id="preview-modal-btn" class="preview-style-btn" type="button">Popup</button>
+      </div>
+    </div>
+
     <div id="conversation-list" class="conversation-list">
       <div class="loading">Loading conversations...</div>
     </div>
@@ -82,6 +90,17 @@
       <div class="modal-actions">
         <button id="btn-project-confirm" class="btn-primary-action btn-move" type="button" disabled>Move</button>
         <button id="btn-project-cancel" class="btn-cancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="preview-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="preview-modal-title">
+    <div class="modal-content modal-content-wide">
+      <p id="preview-modal-title" class="modal-title"></p>
+      <div id="preview-modal-body" class="preview-body"></div>
+      <div class="modal-actions">
+        <button id="btn-preview-open" class="btn-secondary" type="button">Open full chat ↗</button>
+        <button id="btn-preview-close" class="btn-cancel" type="button">Close</button>
       </div>
     </div>
   </div>

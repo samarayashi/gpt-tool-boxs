@@ -68,6 +68,48 @@ export async function fetchConversations(token, offset) {
   return data;
 }
 
+// Fetches a single conversation (full message tree) for previewing.
+export async function fetchConversationDetail(token, conversationId, { signal } = {}) {
+  return fetchJson(`${API_BASE}/conversation/${conversationId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+    errorMessage: 'Failed to load conversation preview.',
+  });
+}
+
+// Reduces a conversation detail into a light preview: first user question and
+// latest assistant reply. Skips system/tool/non-text nodes; clips long text.
+export function summarizeConversation(detail, { maxChars = 400 } = {}) {
+  const messages = Object.values(detail?.mapping || {})
+    .filter(
+      (node) =>
+        node.message &&
+        (node.message.author?.role === 'user' || node.message.author?.role === 'assistant') &&
+        node.message.content?.content_type === 'text'
+    )
+    .map((node) => ({
+      role: node.message.author.role,
+      time: node.message.create_time || 0,
+      text: (node.message.content.parts || [])
+        .filter((part) => typeof part === 'string')
+        .join('\n')
+        .trim(),
+    }))
+    .filter((m) => m.text.length > 0)
+    .sort((a, b) => a.time - b.time);
+
+  const clip = (s) => (s.length > maxChars ? `${s.slice(0, maxChars)}…` : s);
+  const firstUser = messages.find((m) => m.role === 'user');
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+
+  return {
+    title: detail?.title || 'Untitled',
+    messageCount: messages.length,
+    firstUser: firstUser ? clip(firstUser.text) : '',
+    lastAssistant: lastAssistant ? clip(lastAssistant.text) : '',
+  };
+}
+
 // Both delete and move-to-project are PATCHes to the same conversation endpoint;
 // they differ only in the body field.
 async function patchConversation(token, conversationId, patch, { signal, errorMessage } = {}) {
