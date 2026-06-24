@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Batch Delete",
-  "version": "1.0.0",
-  "description": "Batch delete ChatGPT recent conversations",
+  "name": "ChatGPT Batch Tools",
+  "version": "1.1.0",
+  "description": "Batch delete ChatGPT conversations or move them into a project",
   "permissions": ["declarativeContent"],
   "host_permissions": ["https://chatgpt.com/*"],
   "background": {

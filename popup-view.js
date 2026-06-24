@@ -2,14 +2,25 @@ export const els = {
   list: document.getElementById('conversation-list'),
   selectAll: document.getElementById('select-all'),
   loadAllButton: document.getElementById('btn-load-all'),
-  deleteButton: document.getElementById('btn-delete'),
+  primaryButton: document.getElementById('btn-primary'),
   searchInput: document.getElementById('search-input'),
   statusBar: document.getElementById('status-bar'),
+  totalInfo: document.getElementById('total-info'),
+  modeDelete: document.getElementById('mode-delete'),
+  modeMove: document.getElementById('mode-move'),
   confirmModal: document.getElementById('confirm-modal'),
   confirmMessage: document.getElementById('confirm-message'),
   confirmYes: document.getElementById('btn-confirm-yes'),
   confirmNo: document.getElementById('btn-confirm-no'),
-  totalInfo: document.getElementById('total-info'),
+  projectModal: document.getElementById('project-modal'),
+  projectModalTitle: document.getElementById('project-modal-title'),
+  projectSearch: document.getElementById('project-search'),
+  projectList: document.getElementById('project-list'),
+  newProjectToggle: document.getElementById('btn-new-project'),
+  newProjectForm: document.getElementById('new-project-form'),
+  newProjectName: document.getElementById('new-project-name'),
+  projectConfirm: document.getElementById('btn-project-confirm'),
+  projectCancel: document.getElementById('btn-project-cancel'),
 };
 
 const STATUS_AUTO_HIDE_MS = 3500;
@@ -73,6 +84,16 @@ export function appendConversationItems(conversations, selectedIds) {
   els.list.append(fragment);
 }
 
+export function updateModeSwitch({ mode, isBusy }) {
+  const isDelete = mode === 'delete';
+  els.modeDelete.classList.toggle('active', isDelete);
+  els.modeMove.classList.toggle('active', !isDelete);
+  els.modeDelete.setAttribute('aria-selected', String(isDelete));
+  els.modeMove.setAttribute('aria-selected', String(!isDelete));
+  els.modeDelete.disabled = isBusy;
+  els.modeMove.disabled = isBusy;
+}
+
 export function updateToolbar({
   conversations,
   selectedIds,
@@ -80,24 +101,41 @@ export function updateToolbar({
   isLoading,
   isLoadingAll,
   isDeleting,
+  isMoving,
+  mode,
 }) {
+  const isBusy = isDeleting || isMoving;
   const visibleIds = conversations.map((conversation) => conversation.id);
   const selectedVisibleIds = visibleIds.filter((id) => selectedIds.has(id));
   const allVisibleSelected =
     visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length;
+  const count = selectedIds.size;
 
-  els.loadAllButton.disabled = !hasMore || isLoading || isLoadingAll || isDeleting;
+  els.loadAllButton.disabled = !hasMore || isLoading || isLoadingAll || isBusy;
   els.loadAllButton.textContent = isLoadingAll ? 'Loading...' : 'Load All';
 
-  els.deleteButton.disabled = selectedIds.size === 0 && !isDeleting;
-  els.deleteButton.textContent = isDeleting
-    ? 'Cancel Delete'
-    : selectedIds.size
-      ? `Delete Selected (${selectedIds.size})`
-      : 'Delete Selected';
-  els.deleteButton.classList.toggle('btn-delete-cancel', isDeleting);
+  const btn = els.primaryButton;
+  btn.classList.remove('btn-danger', 'btn-move', 'btn-cancel-action');
 
-  els.selectAll.disabled = isDeleting;
+  if (isDeleting) {
+    btn.disabled = false;
+    btn.textContent = 'Cancel Delete';
+    btn.classList.add('btn-cancel-action');
+  } else if (isMoving) {
+    btn.disabled = false;
+    btn.textContent = 'Cancel Move';
+    btn.classList.add('btn-cancel-action');
+  } else if (mode === 'delete') {
+    btn.disabled = count === 0;
+    btn.textContent = count ? `Delete Selected (${count})` : 'Delete Selected';
+    btn.classList.add('btn-danger');
+  } else {
+    btn.disabled = count === 0;
+    btn.textContent = count ? `Move to Project (${count})` : 'Move to Project';
+    btn.classList.add('btn-move');
+  }
+
+  els.selectAll.disabled = isBusy;
   els.selectAll.checked = allVisibleSelected;
   els.selectAll.indeterminate = !allVisibleSelected && selectedVisibleIds.length > 0;
 }
@@ -124,6 +162,93 @@ export function showDeleteConfirmation(count) {
 
 export function hideDeleteConfirmation() {
   els.confirmModal.classList.add('hidden');
+}
+
+// --- Project picker ---
+
+export function showProjectModal(count) {
+  const label = `${count} conversation${count === 1 ? '' : 's'}`;
+  els.projectModalTitle.textContent = `Move ${label} to...`;
+  els.projectSearch.value = '';
+  els.newProjectName.value = '';
+  els.newProjectForm.classList.add('hidden');
+  resetMemoryScope();
+  setProjectListMessage('Loading projects...');
+  els.projectModal.classList.remove('hidden');
+}
+
+export function hideProjectModal() {
+  els.projectModal.classList.add('hidden');
+}
+
+// 'global' = shared global memory, 'project_v2' = project-only context.
+export function getMemoryScope() {
+  const checked = document.querySelector('input[name="memory-scope"]:checked');
+  return checked ? checked.value : 'global';
+}
+
+export function resetMemoryScope() {
+  const def = document.querySelector('input[name="memory-scope"][value="global"]');
+  if (def) def.checked = true;
+}
+
+export function setProjectListMessage(message) {
+  const node = document.createElement('div');
+  node.className = 'loading';
+  node.textContent = message;
+  els.projectList.replaceChildren(node);
+}
+
+export function renderProjectList(projects, { selectedId, query }) {
+  const normalized = (query || '').toLowerCase().trim();
+  const filtered = normalized
+    ? projects.filter((p) => p.name.toLowerCase().includes(normalized))
+    : projects;
+
+  if (projects.length === 0) {
+    setProjectListMessage('No projects yet. Create one below.');
+    return;
+  }
+
+  if (filtered.length === 0) {
+    setProjectListMessage('No matching projects.');
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  filtered.forEach((project) => {
+    const row = document.createElement('div');
+    row.className = 'project-item';
+    row.dataset.id = project.id;
+    if (project.id === selectedId) {
+      row.classList.add('selected');
+    }
+    row.textContent = project.name;
+    row.title = project.name;
+    fragment.append(row);
+  });
+  els.projectList.replaceChildren(fragment);
+}
+
+export function updateProjectConfirm(choice) {
+  const btn = els.projectConfirm;
+  if (choice?.type === 'new') {
+    btn.textContent = 'Create & Move';
+    btn.disabled = choice.name.trim().length === 0;
+  } else if (choice?.type === 'existing') {
+    btn.textContent = 'Move';
+    btn.disabled = !choice.id;
+  } else {
+    btn.textContent = 'Move';
+    btn.disabled = true;
+  }
+}
+
+export function setNewProjectFormVisible(visible) {
+  els.newProjectForm.classList.toggle('hidden', !visible);
+  if (visible) {
+    els.newProjectName.focus();
+  }
 }
 
 function createConversationItem(conversation, selectedIds) {

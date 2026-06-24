@@ -3,12 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ChatGPT Batch Delete</title>
+  <title>ChatGPT Batch Tools</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="container">
-    <h1>ChatGPT Batch Delete</h1>
+    <h1>ChatGPT Batch Tools</h1>
+
+    <div class="mode-switch" role="tablist" aria-label="Mode">
+      <button id="mode-delete" class="mode-btn active" type="button" role="tab" aria-selected="true">Delete</button>
+      <button id="mode-move" class="mode-btn" type="button" role="tab" aria-selected="false">Move to Project</button>
+    </div>
 
     <div id="status-bar" class="status-bar hidden" role="status" aria-live="polite"></div>
 
@@ -18,7 +23,7 @@
       </label>
       <div class="toolbar-actions">
         <button id="btn-load-all" class="btn-secondary" type="button">Load All</button>
-        <button id="btn-delete" class="btn-delete" type="button" disabled>Delete Selected</button>
+        <button id="btn-primary" class="btn-primary-action btn-danger" type="button" disabled>Delete Selected</button>
       </div>
     </div>
 
@@ -37,8 +42,42 @@
     <div class="modal-content">
       <p id="confirm-message"></p>
       <div class="modal-actions">
-        <button id="btn-confirm-yes" class="btn-delete" type="button">Confirm Delete</button>
+        <button id="btn-confirm-yes" class="btn-primary-action btn-danger" type="button">Confirm Delete</button>
         <button id="btn-confirm-no" class="btn-cancel" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="project-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
+    <div class="modal-content modal-content-wide">
+      <p id="project-modal-title" class="modal-title"></p>
+
+      <input type="text" id="project-search" class="project-search" placeholder="Search projects...">
+
+      <div id="project-list" class="project-list">
+        <div class="loading">Loading projects...</div>
+      </div>
+
+      <div class="new-project-row">
+        <button id="btn-new-project" class="new-project-toggle" type="button">+ New project</button>
+        <div id="new-project-form" class="new-project-form hidden">
+          <input type="text" id="new-project-name" placeholder="New project name">
+          <div class="memory-scope-options">
+            <label class="scope-option">
+              <input type="radio" name="memory-scope" value="global" checked>
+              Shared memory
+            </label>
+            <label class="scope-option">
+              <input type="radio" name="memory-scope" value="project_v2">
+              Project-only context
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btn-project-confirm" class="btn-primary-action btn-move" type="button" disabled>Move</button>
+        <button id="btn-project-cancel" class="btn-cancel" type="button">Cancel</button>
       </div>
     </div>
   </div>

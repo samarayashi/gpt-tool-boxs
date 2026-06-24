@@ -1,20 +1,34 @@
 import {
   PAGE_SIZE,
+  DELETE_CONCURRENCY,
+  MOVE_CONCURRENCY,
   fetchConversations,
+  fetchProjects,
+  createProject,
+  deleteConversation,
+  moveConversationToProject,
   getAccessToken,
 } from './chatgpt-api.js';
-import { deleteWithQueue } from './delete-queue.js';
+import { runWithQueue } from './task-queue.js';
 import { openConversationInBackgroundTab } from './tab-navigation.js';
 import {
   appendConversationItems,
   els,
   getSearchQuery,
   hideDeleteConfirmation,
+  getMemoryScope,
+  hideProjectModal,
   hideStatus,
   renderList,
+  renderProjectList,
   setLoadingMessage,
+  setNewProjectFormVisible,
+  setProjectListMessage,
   showDeleteConfirmation,
+  showProjectModal,
   showStatus,
+  updateModeSwitch,
+  updateProjectConfirm,
   updateToolbar,
   updateTotalInfo,
 } from './popup-view.js';
@@ -29,10 +43,20 @@ const state = {
   isLoading: false,
   isLoadingAll: false,
   isDeleting: false,
+  isMoving: false,
   deleteAbortController: null,
+  moveAbortController: null,
   offset: 0,
   hasMore: true,
+  mode: 'delete',
+  projects: [],
+  projectsLoaded: false,
+  pickerChoice: null,
 };
+
+function isBusy() {
+  return state.isDeleting || state.isMoving;
+}
 
 function matchesSearch(conversation, query) {
   return !query || (conversation.title || 'Untitled').toLowerCase().includes(query);
@@ -46,6 +70,7 @@ function refreshFilteredConversations() {
 }
 
 function updateViewState() {
+  updateModeSwitch({ mode: state.mode, isBusy: isBusy() });
   updateToolbar({
     conversations: state.filteredConversations,
     selectedIds: state.selectedIds,
@@ -53,6 +78,8 @@ function updateViewState() {
     isLoading: state.isLoading,
     isLoadingAll: state.isLoadingAll,
     isDeleting: state.isDeleting,
+    isMoving: state.isMoving,
+    mode: state.mode,
   });
   updateTotalInfo({
     visibleCount: state.filteredConversations.length,
@@ -60,14 +87,6 @@ function updateViewState() {
     hasMore: state.hasMore,
     hasQuery: Boolean(getSearchQuery()),
   });
-}
-
-function resetConversationState() {
-  state.conversations = [];
-  state.filteredConversations = [];
-  state.selectedIds.clear();
-  state.offset = 0;
-  state.hasMore = true;
 }
 
 function addConversations(items, append) {
@@ -174,7 +193,7 @@ async function loadAllConversations() {
 }
 
 async function handleConversationListClick(event) {
-  if (state.isDeleting) return;
+  if (isBusy()) return;
 
   const item = event.target.closest('.conversation-item');
   if (!item) return;
@@ -205,7 +224,7 @@ function setSelection(id, selected) {
 }
 
 function handleSelectAllChange() {
-  if (state.isDeleting) return;
+  if (isBusy()) return;
 
   state.filteredConversations.forEach((conversation) => {
     if (els.selectAll.checked) {
@@ -220,7 +239,7 @@ function handleSelectAllChange() {
 }
 
 function handleSearchInput() {
-  if (state.isDeleting) return;
+  if (isBusy()) return;
 
   refreshFilteredConversations();
   renderList(state.filteredConversations, state.selectedIds);
@@ -228,7 +247,7 @@ function handleSearchInput() {
 }
 
 function handleListScroll() {
-  if (state.isDeleting) return;
+  if (isBusy()) return;
 
   const distanceFromBottom =
     els.list.scrollHeight - els.list.scrollTop - els.list.clientHeight;
@@ -238,47 +257,61 @@ function handleListScroll() {
   }
 }
 
-function handleDeleteClick() {
+function setMode(mode) {
+  if (isBusy() || state.mode === mode) return;
+  state.mode = mode;
+  updateViewState();
+}
+
+function handlePrimaryClick() {
   if (state.isDeleting) {
     cancelDelete();
     return;
   }
+  if (state.isMoving) {
+    cancelMove();
+    return;
+  }
 
   if (state.selectedIds.size === 0) return;
-  showDeleteConfirmation(state.selectedIds.size);
+
+  if (state.mode === 'delete') {
+    showDeleteConfirmation(state.selectedIds.size);
+  } else {
+    openProjectPicker();
+  }
 }
+
+// --- Delete flow ---
 
 async function performDelete() {
   hideDeleteConfirmation();
 
   const ids = [...state.selectedIds];
-  const totalToDelete = ids.length;
+  const total = ids.length;
   const abortController = new AbortController();
 
   state.isDeleting = true;
   state.deleteAbortController = abortController;
-  showStatus(`Deleting ${pluralizeConversation(totalToDelete)}...`, 'info', {
-    autoHide: false,
-  });
+  showStatus(`Deleting ${pluralizeConversation(total)}...`, 'info', { autoHide: false });
   updateViewState();
 
   try {
     const token = await getAccessToken();
-    const result = await deleteWithQueue({
+    const result = await runWithQueue({
       ids,
-      token,
+      worker: (id, { signal }) => deleteConversation(token, id, { signal }),
+      concurrency: DELETE_CONCURRENCY,
       signal: abortController.signal,
       onProgress: ({ processed }) => {
-        showStatus(`Deleting... ${processed}/${totalToDelete}`, 'info', {
-          autoHide: false,
-        });
+        showStatus(`Deleting... ${processed}/${total}`, 'info', { autoHide: false });
       },
     });
 
-    showStatus(getDeleteResultMessage(result), getDeleteResultType(result));
+    showStatus(getDeleteResultMessage(result), getResultType(result));
 
-    if (result.deleted > 0) {
-      removeConversations(result.deletedIds);
+    if (result.succeeded > 0) {
+      removeConversations(result.succeededIds);
     }
     renderList(state.filteredConversations, state.selectedIds);
   } catch (err) {
@@ -300,19 +333,195 @@ function cancelDelete() {
   updateViewState();
 }
 
-function getDeleteResultMessage({ deleted, failed, canceled }) {
-  if (canceled) {
-    return `Canceled. Deleted ${deleted}, failed ${failed}.`;
-  }
+// --- Move-to-project flow ---
 
-  if (failed === 0) {
-    return `Successfully deleted ${pluralizeConversation(deleted)}.`;
-  }
-
-  return `Deleted ${deleted}, failed ${failed}.`;
+function openProjectPicker() {
+  state.pickerChoice = null;
+  showProjectModal(state.selectedIds.size);
+  updateProjectConfirm(null);
+  loadProjects();
 }
 
-function getDeleteResultType({ failed, canceled }) {
+async function loadProjects({ force = false } = {}) {
+  if (state.projectsLoaded && !force) {
+    renderProjectList(state.projects, { selectedId: getSelectedProjectId(), query: '' });
+    return;
+  }
+
+  setProjectListMessage('Loading projects...');
+
+  try {
+    const token = await getAccessToken();
+    state.projects = await fetchProjects(token);
+    state.projectsLoaded = true;
+    renderProjectList(state.projects, { selectedId: getSelectedProjectId(), query: getProjectQuery() });
+  } catch (err) {
+    setProjectListMessage(`${err.message} (click to retry)`);
+    els.projectList.querySelector('.loading')?.addEventListener('click', () => loadProjects({ force: true }), { once: true });
+  }
+}
+
+function getSelectedProjectId() {
+  return state.pickerChoice?.type === 'existing' ? state.pickerChoice.id : null;
+}
+
+function getProjectQuery() {
+  return els.projectSearch.value;
+}
+
+function handleProjectListClick(event) {
+  const row = event.target.closest('.project-item');
+  if (!row) return;
+
+  const project = state.projects.find((p) => p.id === row.dataset.id);
+  if (!project) return;
+
+  state.pickerChoice = { type: 'existing', id: project.id, name: project.name };
+  setNewProjectFormVisible(false);
+  els.newProjectName.value = '';
+  renderProjectList(state.projects, { selectedId: project.id, query: getProjectQuery() });
+  updateProjectConfirm(state.pickerChoice);
+}
+
+function handleProjectSearchInput() {
+  renderProjectList(state.projects, {
+    selectedId: getSelectedProjectId(),
+    query: getProjectQuery(),
+  });
+}
+
+function handleNewProjectToggle() {
+  state.pickerChoice = { type: 'new', name: els.newProjectName.value };
+  setNewProjectFormVisible(true);
+  renderProjectList(state.projects, { selectedId: null, query: getProjectQuery() });
+  updateProjectConfirm(state.pickerChoice);
+}
+
+function handleNewProjectInput() {
+  state.pickerChoice = { type: 'new', name: els.newProjectName.value };
+  updateProjectConfirm(state.pickerChoice);
+}
+
+async function handleProjectConfirm() {
+  const choice = state.pickerChoice;
+  if (!choice) return;
+
+  if (choice.type === 'existing') {
+    hideProjectModal();
+    await performMove(choice.id, choice.name);
+  } else if (choice.type === 'new') {
+    const name = choice.name.trim();
+    if (!name) return;
+    const memoryScope = getMemoryScope();
+    hideProjectModal();
+    await createProjectThenMove(name, memoryScope);
+  }
+}
+
+async function createProjectThenMove(name, memoryScope) {
+  const ids = [...state.selectedIds];
+  const total = ids.length;
+  const abortController = new AbortController();
+
+  state.isMoving = true;
+  state.moveAbortController = abortController;
+  showStatus(`Creating project "${name}"...`, 'info', { autoHide: false });
+  updateViewState();
+
+  try {
+    const token = await getAccessToken();
+    const project = await createProject(token, name, memoryScope);
+
+    // Refresh cache so the new project appears next time the picker opens.
+    state.projectsLoaded = false;
+
+    await runMoveQueue({ token, ids, total, gizmoId: project.id, projectName: project.name, abortController, created: true });
+  } catch (err) {
+    if (!isAbortError(err)) {
+      showStatus(`Error: ${err.message}`, 'error');
+    }
+  } finally {
+    state.isMoving = false;
+    state.moveAbortController = null;
+    updateViewState();
+  }
+}
+
+async function performMove(gizmoId, projectName) {
+  const ids = [...state.selectedIds];
+  const total = ids.length;
+  const abortController = new AbortController();
+
+  state.isMoving = true;
+  state.moveAbortController = abortController;
+  showStatus(`Moving ${pluralizeConversation(total)}...`, 'info', { autoHide: false });
+  updateViewState();
+
+  try {
+    const token = await getAccessToken();
+    await runMoveQueue({ token, ids, total, gizmoId, projectName, abortController, created: false });
+  } catch (err) {
+    if (!isAbortError(err)) {
+      showStatus(`Error: ${err.message}`, 'error');
+    }
+  } finally {
+    state.isMoving = false;
+    state.moveAbortController = null;
+    updateViewState();
+  }
+}
+
+async function runMoveQueue({ token, ids, total, gizmoId, projectName, abortController, created }) {
+  const result = await runWithQueue({
+    ids,
+    worker: (id, { signal }) => moveConversationToProject(token, id, gizmoId, { signal }),
+    concurrency: MOVE_CONCURRENCY,
+    signal: abortController.signal,
+    onProgress: ({ processed }) => {
+      showStatus(`Moving... ${processed}/${total}`, 'info', { autoHide: false });
+    },
+  });
+
+  showStatus(getMoveResultMessage(result, projectName, created), getResultType(result));
+
+  if (result.succeeded > 0) {
+    removeConversations(result.succeededIds);
+  }
+  renderList(state.filteredConversations, state.selectedIds);
+}
+
+function cancelMove() {
+  if (!state.isMoving) return;
+
+  state.moveAbortController?.abort();
+  showStatus('Canceling move...', 'info', { autoHide: false });
+  updateViewState();
+}
+
+// --- Result messages ---
+
+function getDeleteResultMessage({ succeeded, failed, canceled }) {
+  if (canceled) {
+    return `Canceled. Deleted ${succeeded}, failed ${failed}.`;
+  }
+  if (failed === 0) {
+    return `Successfully deleted ${pluralizeConversation(succeeded)}.`;
+  }
+  return `Deleted ${succeeded}, failed ${failed}.`;
+}
+
+function getMoveResultMessage({ succeeded, failed, canceled }, projectName, created) {
+  const prefix = created ? `Created "${projectName}". ` : '';
+  if (canceled) {
+    return `${prefix}Canceled. Moved ${succeeded}, failed ${failed}.`;
+  }
+  if (failed === 0) {
+    return `${prefix}Moved ${pluralizeConversation(succeeded)} to "${projectName}".`;
+  }
+  return `${prefix}Moved ${succeeded}, failed ${failed}.`;
+}
+
+function getResultType({ failed, canceled }) {
   if (canceled) return 'info';
   return failed ? 'error' : 'success';
 }
@@ -333,9 +542,20 @@ els.list.addEventListener('click', handleConversationListClick);
 els.list.addEventListener('scroll', handleListScroll);
 els.selectAll.addEventListener('change', handleSelectAllChange);
 els.loadAllButton.addEventListener('click', loadAllConversations);
-els.deleteButton.addEventListener('click', handleDeleteClick);
+els.primaryButton.addEventListener('click', handlePrimaryClick);
+els.searchInput.addEventListener('input', handleSearchInput);
+
+els.modeDelete.addEventListener('click', () => setMode('delete'));
+els.modeMove.addEventListener('click', () => setMode('move'));
+
 els.confirmYes.addEventListener('click', performDelete);
 els.confirmNo.addEventListener('click', hideDeleteConfirmation);
-els.searchInput.addEventListener('input', handleSearchInput);
+
+els.projectList.addEventListener('click', handleProjectListClick);
+els.projectSearch.addEventListener('input', handleProjectSearchInput);
+els.newProjectToggle.addEventListener('click', handleNewProjectToggle);
+els.newProjectName.addEventListener('input', handleNewProjectInput);
+els.projectConfirm.addEventListener('click', handleProjectConfirm);
+els.projectCancel.addEventListener('click', hideProjectModal);
 
 loadConversations();

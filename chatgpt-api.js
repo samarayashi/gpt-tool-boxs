@@ -1,8 +1,11 @@
 export const PAGE_SIZE = 28;
 export const DELETE_CONCURRENCY = 5;
+export const MOVE_CONCURRENCY = 5;
 
 const API_BASE = 'https://chatgpt.com/backend-api';
 const SESSION_URL = 'https://chatgpt.com/api/auth/session';
+const PROJECTS_PAGE_LIMIT = 100;
+const PROJECTS_MAX_PAGES = 20;
 const DEBUG_API = false;
 
 async function fetchJson(url, options = {}) {
@@ -43,7 +46,7 @@ export async function fetchConversations(token, offset) {
   url.searchParams.set('order', 'updated');
 
   if (DEBUG_API) {
-    console.log('[ChatGPT Batch Delete] fetch conversations request', {
+    console.log('[ChatGPT Batch] fetch conversations request', {
       url: url.toString(),
       offset,
       limit: PAGE_SIZE,
@@ -56,21 +59,95 @@ export async function fetchConversations(token, offset) {
   });
 
   if (DEBUG_API) {
-    console.log('[ChatGPT Batch Delete] fetch conversations raw data', data);
+    console.log('[ChatGPT Batch] fetch conversations raw data', data);
   }
 
   return data;
 }
 
-export async function deleteConversation(token, conversationId, { signal } = {}) {
+// Both delete and move-to-project are PATCHes to the same conversation endpoint;
+// they differ only in the body field.
+async function patchConversation(token, conversationId, patch, { signal, errorMessage } = {}) {
   return fetchJson(`${API_BASE}/conversation/${conversationId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ is_visible: false }),
+    body: JSON.stringify(patch),
+    signal,
+    errorMessage,
+  });
+}
+
+export async function deleteConversation(token, conversationId, { signal } = {}) {
+  return patchConversation(token, conversationId, { is_visible: false }, {
     signal,
     errorMessage: `Failed to delete conversation ${conversationId}.`,
   });
+}
+
+export async function moveConversationToProject(token, conversationId, gizmoId, { signal } = {}) {
+  return patchConversation(token, conversationId, { gizmo_id: gizmoId }, {
+    signal,
+    errorMessage: `Failed to move conversation ${conversationId}.`,
+  });
+}
+
+// Lists the user's projects (snorlax gizmos) from the sidebar endpoint.
+// Each item is double-nested: items[].gizmo.gizmo holds the real gizmo.
+export async function fetchProjects(token) {
+  const projects = [];
+  let cursor = null;
+  let page = 0;
+
+  do {
+    const url = new URL(`${API_BASE}/gizmos/snorlax/sidebar`);
+    url.searchParams.set('owned_only', 'true');
+    url.searchParams.set('conversations_per_gizmo', '0');
+    url.searchParams.set('limit', PROJECTS_PAGE_LIMIT);
+    if (cursor) {
+      url.searchParams.set('cursor', cursor);
+    }
+
+    const data = await fetchJson(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+      errorMessage: 'Failed to fetch projects.',
+    });
+
+    for (const item of data.items || []) {
+      const gizmo = item?.gizmo?.gizmo;
+      if (gizmo?.id && gizmo.gizmo_type === 'snorlax') {
+        projects.push({
+          id: gizmo.id,
+          name: gizmo.display?.name || 'Untitled project',
+        });
+      }
+    }
+
+    cursor = data.cursor || null;
+    page += 1;
+  } while (cursor && page < PROJECTS_MAX_PAGES);
+
+  return projects;
+}
+
+// memoryScope: 'global' (shared global memory) or 'project_v2' (project-only context).
+export async function createProject(token, name, memoryScope = 'global') {
+  const data = await fetchJson(`${API_BASE}/projects`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ instructions: '', name, memory_scope: memoryScope }),
+    errorMessage: 'Failed to create project.',
+  });
+
+  const gizmo = data?.resource?.gizmo;
+  if (!gizmo?.id) {
+    throw new Error('Project created but no id was returned.');
+  }
+
+  return { id: gizmo.id, name: gizmo.display?.name || name };
 }
