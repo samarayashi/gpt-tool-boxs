@@ -175,6 +175,38 @@ h1 {
   white-space: nowrap;
 }
 
+.conv-rename {
+  display: none;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 13px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.conversation-item:hover .conv-rename {
+  display: block;
+}
+
+.conv-rename:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.rename-input {
+  flex: 1;
+  font-size: 13px;
+  padding: 1px 5px;
+  border: 1px solid #6366f1;
+  border-radius: 4px;
+  outline: none;
+  min-width: 0;
+}
+
 .loading {
   padding: 40px;
   text-align: center;
@@ -545,9 +577,247 @@ h1 {
   text-decoration: underline;
 }
 
+/* Preview modal stacks above context builder modal */
+#preview-modal {
+  z-index: 1100;
+}
+
+/* When used as a full conversation viewer from context builder,
+   remove per-message height caps so there is only one outer scroll. */
+#preview-modal.context-full-view .preview-body {
+  max-height: 65vh;
+}
+
+#preview-modal.context-full-view .preview-text {
+  max-height: none;
+  overflow-y: visible;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Preview modal body */
 .preview-body {
   max-height: 50vh;
   overflow-y: auto;
   margin-bottom: 14px;
+}
+
+/* Context Builder Modal */
+.context-modal-content {
+  max-width: 380px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.context-header .modal-title {
+  margin-bottom: 0;
+}
+
+.context-expand-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.btn-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.context-conv-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  margin-bottom: 12px;
+}
+
+.context-conv-section {
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.context-conv-section:last-child {
+  border-bottom: none;
+}
+
+.context-conv-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.context-conv-header:hover {
+  background: #f9fafb;
+}
+
+.context-conv-toggle {
+  font-size: 10px;
+  color: #9ca3af;
+  flex-shrink: 0;
+  width: 10px;
+}
+
+.context-conv-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-count-label {
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-toggle-all {
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.context-toggle-all:hover {
+  text-decoration: underline;
+}
+
+.context-status-label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.context-conv-body {
+  padding: 0 10px 8px 10px;
+}
+
+.context-exchange {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.context-exchange:hover {
+  background: #f9fafb;
+}
+
+.context-exchange input[type="checkbox"] {
+  flex-shrink: 0;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.context-exchange-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.context-msg {
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.context-msg-user {
+  color: #111827;
+  font-weight: 500;
+}
+
+.context-msg-assistant {
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.context-placeholder {
+  font-size: 12px;
+  color: #9ca3af;
+  padding: 12px;
+  text-align: center;
+}
+
+.context-placeholder.error {
+  color: #991b1b;
+}
+
+/* Format / Template option rows */
+.context-options {
+  margin-bottom: 12px;
+}
+
+.context-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.context-option-label {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+  min-width: 55px;
+}
+
+.context-option-buttons {
+  display: flex;
+  gap: 3px;
+  padding: 2px;
+  background: #eef0f4;
+  border-radius: 7px;
+}
+
+.context-opt-btn {
+  padding: 3px 9px;
+  border: none;
+  background: transparent;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.context-opt-btn.active {
+  background: #fff;
+  color: #111;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.btn-context {
+  background: #10b981;
+}
+
+.btn-context:not(:disabled):hover {
+  background: #059669;
+}
+
+.btn-context:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }

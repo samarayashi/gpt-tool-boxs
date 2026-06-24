@@ -6,10 +6,14 @@ import {
   fetchConversationDetail,
   fetchProjects,
   createProject,
+  createNewConversation,
   deleteConversation,
   moveConversationToProject,
+  renameConversation,
   getAccessToken,
   summarizeConversation,
+  getAllMessages,
+  groupIntoExchanges,
 } from './chatgpt-api.js';
 import { runWithQueue } from './task-queue.js';
 import { openConversationInBackgroundTab } from './tab-navigation.js';
@@ -21,18 +25,23 @@ import {
   getMemoryScope,
   hidePreviewModal,
   hideProjectModal,
+  hideContextModal,
   hideStatus,
   isInProject,
   renderList,
+  renderContextConvList,
   renderProjectList,
+  setContextOptActive,
   setExpandedPreview,
   setLoadingMessage,
   setNewProjectFormVisible,
   setProjectListMessage,
   setProjectNameMap,
+  showContextFullView,
   showDeleteConfirmation,
   showPreviewModal,
   showProjectModal,
+  showContextModal,
   showStatus,
   updateModeSwitch,
   updatePreviewStyleSwitch,
@@ -65,6 +74,12 @@ const state = {
   expandedId: null,
   previewModalId: null,
   previewCache: new Map(),
+  // Context builder
+  contextConvDetails: new Map(), // id -> { status, title, exchanges, error }
+  contextExpanded: new Set(),
+  contextChecked: new Map(),     // id -> Set<number> of checked exchange indices
+  contextFormat: 'markdown',
+  contextTemplate: 'none',
 };
 
 function isBusy() {
@@ -222,6 +237,16 @@ function handleConversationListClick(event) {
     return;
   }
 
+  // Rename button (✎) on hover.
+  const renameBtn = event.target.closest('[data-action="rename"]');
+  if (renameBtn) {
+    const item = renameBtn.closest('.conversation-item');
+    const titleEl = item?.querySelector('.conv-title');
+    const conv = state.conversations.find((c) => c.id === renameBtn.dataset.id);
+    if (titleEl && conv) startInlineRename(conv, titleEl);
+    return;
+  }
+
   const item = event.target.closest('.conversation-item');
   if (!item) return; // clicks inside the inline preview text land here and do nothing
 
@@ -366,6 +391,305 @@ function setMode(mode) {
   updateViewState();
 }
 
+// --- Context Builder ---
+
+async function openContextBuilder() {
+  const ids = [...state.selectedIds];
+  if (ids.length === 0) return;
+
+  // Seed state for any newly selected conversation.
+  ids.forEach((id) => {
+    if (!state.contextConvDetails.has(id)) {
+      const conv = state.conversations.find((c) => c.id === id);
+      state.contextConvDetails.set(id, {
+        status: 'loading',
+        title: conv?.title || 'Untitled',
+        exchanges: [],
+        error: null,
+      });
+    }
+  });
+
+  // Default: all collapsed — user already knows the content when selecting.
+
+  showContextModal(ids.length);
+  renderContextBuilder();
+
+  let token;
+  try {
+    token = await getAccessToken();
+  } catch (err) {
+    showStatus(err.message, 'error');
+    hideContextModal();
+    return;
+  }
+
+  // Fetch all selected conversations in parallel; re-render as each arrives.
+  await Promise.all(
+    ids.map(async (id) => {
+      const existing = state.contextConvDetails.get(id);
+      if (existing?.status === 'ready') return;
+
+      try {
+        const detail = await fetchConversationDetail(token, id);
+        const messages = getAllMessages(detail);
+        const exchanges = groupIntoExchanges(messages);
+
+        state.contextConvDetails.set(id, {
+          status: 'ready',
+          title: detail.title || existing?.title || 'Untitled',
+          exchanges,
+          error: null,
+        });
+
+        // Default: all exchanges checked on first load.
+        if (!state.contextChecked.has(id)) {
+          state.contextChecked.set(id, new Set(exchanges.map((_, i) => i)));
+        }
+      } catch (err) {
+        state.contextConvDetails.set(id, {
+          status: 'error',
+          title: existing?.title || 'Untitled',
+          exchanges: [],
+          error: err.message,
+        });
+      }
+
+      if (!els.contextModal.classList.contains('hidden')) {
+        renderContextBuilder();
+      }
+    })
+  );
+}
+
+function renderContextBuilder() {
+  const ids = [...state.selectedIds];
+  const items = ids.map((id) => {
+    const detail = state.contextConvDetails.get(id) || {
+      status: 'loading',
+      title: 'Untitled',
+      exchanges: [],
+      error: null,
+    };
+    return {
+      id,
+      title: detail.title,
+      status: detail.status,
+      exchanges: detail.exchanges,
+      error: detail.error,
+      expanded: state.contextExpanded.has(id),
+      checked: state.contextChecked.get(id) || new Set(),
+    };
+  });
+  renderContextConvList(items);
+}
+
+function handleContextConvListClick(event) {
+  // "View" — open full conversation in preview modal.
+  const viewBtn = event.target.closest('[data-action="view"]');
+  if (viewBtn) {
+    openConversationFullView(viewBtn.dataset.id);
+    return;
+  }
+
+  // "All / None" toggle per conversation.
+  const toggleAll = event.target.closest('[data-action="toggle-all"]');
+  if (toggleAll) {
+    const { id } = toggleAll.dataset;
+    const detail = state.contextConvDetails.get(id);
+    if (!detail || detail.status !== 'ready') return;
+
+    const checked = state.contextChecked.get(id) || new Set();
+    const allChecked = detail.exchanges.length > 0 && checked.size === detail.exchanges.length;
+
+    state.contextChecked.set(
+      id,
+      allChecked ? new Set() : new Set(detail.exchanges.map((_, i) => i))
+    );
+    renderContextBuilder();
+    return;
+  }
+
+  // Toggle expand/collapse on header click.
+  const header = event.target.closest('[data-action="toggle"]');
+  if (header) {
+    const { id } = header.dataset;
+    if (state.contextExpanded.has(id)) {
+      state.contextExpanded.delete(id);
+    } else {
+      state.contextExpanded.add(id);
+    }
+    renderContextBuilder();
+  }
+}
+
+function handleContextExchangeChange(event) {
+  const cb = event.target.closest('[data-action="check-exchange"]');
+  if (!cb) return;
+
+  const { id, idx } = cb.dataset;
+  const checked = state.contextChecked.get(id) || new Set();
+
+  if (cb.checked) {
+    checked.add(Number(idx));
+  } else {
+    checked.delete(Number(idx));
+  }
+  state.contextChecked.set(id, checked);
+  renderContextBuilder();
+}
+
+function handleContextSelectAll() {
+  for (const id of state.selectedIds) {
+    const detail = state.contextConvDetails.get(id);
+    if (detail?.status === 'ready') {
+      state.contextChecked.set(id, new Set(detail.exchanges.map((_, i) => i)));
+    }
+  }
+  renderContextBuilder();
+}
+
+function handleContextDeselectAll() {
+  for (const id of state.selectedIds) {
+    state.contextChecked.set(id, new Set());
+  }
+  renderContextBuilder();
+}
+
+function openConversationFullView(id) {
+  const detail = state.contextConvDetails.get(id);
+  if (!detail || detail.status !== 'ready') return;
+  showContextFullView(detail.title, detail.exchanges);
+}
+
+async function sendToNewChat() {
+  const output = assembleContext(state.contextFormat, state.contextTemplate);
+  if (!output) {
+    showStatus('No content selected. Expand conversations and check exchanges.', 'info');
+    return;
+  }
+
+  const btn = els.contextSend;
+  const originalText = btn.textContent;
+  btn.textContent = 'Creating…';
+  btn.disabled = true;
+
+  try {
+    const token = await getAccessToken();
+    const conversationId = await createNewConversation(token, output);
+    await chrome.tabs.create({ url: `https://chatgpt.com/c/${conversationId}`, active: true });
+    showStatus('Opened in a new tab.', 'success');
+  } catch (err) {
+    showStatus(`Failed to create conversation: ${err.message}`, 'error');
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+function handleContextFormatClick(event) {
+  const btn = event.target.closest('.context-opt-btn');
+  if (!btn || !btn.dataset.value) return;
+  state.contextFormat = btn.dataset.value;
+  setContextOptActive(els.contextFormatGroup, state.contextFormat);
+}
+
+function handleContextTemplateClick(event) {
+  const btn = event.target.closest('.context-opt-btn');
+  if (!btn || !btn.dataset.value) return;
+  state.contextTemplate = btn.dataset.value;
+  setContextOptActive(els.contextTemplateGroup, state.contextTemplate);
+}
+
+async function copyContextToClipboard() {
+  const output = assembleContext(state.contextFormat, state.contextTemplate);
+  if (!output) {
+    showStatus('No content selected. Expand conversations and check exchanges.', 'info');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(output);
+    showStatus('Copied to clipboard!', 'success');
+  } catch {
+    showStatus('Clipboard write failed. Try again.', 'error');
+  }
+}
+
+function assembleContext(format, template) {
+  const ids = [...state.selectedIds];
+  const sections = [];
+
+  for (const id of ids) {
+    const detail = state.contextConvDetails.get(id);
+    if (!detail || detail.status !== 'ready') continue;
+
+    const checked = state.contextChecked.get(id) || new Set();
+    const selected = detail.exchanges.filter((_, i) => checked.has(i));
+    if (selected.length === 0) continue;
+
+    sections.push({ title: detail.title, exchanges: selected });
+  }
+
+  if (sections.length === 0) return '';
+
+  let contextBlock;
+
+  if (format === 'xml') {
+    const escX = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const body = sections
+      .map(({ title, exchanges }) => {
+        const exXml = exchanges
+          .map(({ user, assistant }) => {
+            const parts = [];
+            if (user) parts.push(`      <user>${escX(user.text)}</user>`);
+            if (assistant) parts.push(`      <assistant>${escX(assistant.text)}</assistant>`);
+            return `    <exchange>\n${parts.join('\n')}\n    </exchange>`;
+          })
+          .join('\n');
+        return `  <conversation title="${escX(title)}">\n${exXml}\n  </conversation>`;
+      })
+      .join('\n');
+    contextBlock = `<context>\n${body}\n</context>`;
+  } else if (format === 'plain') {
+    contextBlock = sections
+      .map(({ title, exchanges }) => {
+        const lines = [`=== From: "${title}" ===\n`];
+        exchanges.forEach(({ user, assistant }) => {
+          if (user) lines.push(`[You] ${user.text}`);
+          if (assistant) lines.push(`[ChatGPT] ${assistant.text}`);
+          lines.push('');
+        });
+        return lines.join('\n');
+      })
+      .join('\n---\n\n');
+  } else {
+    // markdown (default)
+    contextBlock = sections
+      .map(({ title, exchanges }) => {
+        const lines = [`## From: "${title}"\n`];
+        exchanges.forEach(({ user, assistant }) => {
+          if (user) lines.push(`**You:** ${user.text}`);
+          if (assistant) lines.push(`**ChatGPT:** ${assistant.text}`);
+          lines.push('');
+        });
+        return lines.join('\n');
+      })
+      .join('\n---\n\n');
+    contextBlock = `<!-- Context from previous conversations -->\n\n${contextBlock}`;
+  }
+
+  const templates = {
+    summarize: 'Please summarize the key points and insights from the above conversations.',
+    outline:
+      'Based on the above conversations, please create a structured outline of the main topics and ideas discussed.',
+    reorganize:
+      'Please synthesize and reorganize the information from the above conversations into a clear, coherent summary.',
+  };
+
+  const instruction = templates[template];
+  return instruction ? `${contextBlock}\n\n---\n\n${instruction}` : contextBlock;
+}
+
 function handlePrimaryClick() {
   if (state.isDeleting) {
     cancelDelete();
@@ -380,8 +704,10 @@ function handlePrimaryClick() {
 
   if (state.mode === 'delete') {
     showDeleteConfirmation(state.selectedIds.size);
-  } else {
+  } else if (state.mode === 'move') {
     openProjectPicker();
+  } else {
+    openContextBuilder();
   }
 }
 
@@ -632,6 +958,51 @@ function cancelMove() {
   updateViewState();
 }
 
+// --- Inline rename ---
+
+function startInlineRename(conv, titleEl) {
+  const originalTitle = conv.title || 'Untitled';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = originalTitle;
+  input.className = 'rename-input';
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let committed = false;
+
+  const finish = async (save) => {
+    if (committed) return;
+    committed = true;
+
+    const newTitle = input.value.trim();
+    titleEl.textContent = save && newTitle ? newTitle : originalTitle;
+    input.replaceWith(titleEl);
+
+    if (!save || !newTitle || newTitle === originalTitle) return;
+
+    try {
+      const token = await getAccessToken();
+      await renameConversation(token, conv.id, newTitle);
+      conv.title = newTitle;
+      refreshFilteredConversations();
+      showStatus(`Renamed to "${newTitle}".`, 'success');
+    } catch (err) {
+      titleEl.textContent = originalTitle;
+      conv.title = originalTitle;
+      showStatus(`Rename failed: ${err.message}`, 'error');
+    }
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
 // --- Result messages ---
 
 function getDeleteResultMessage({ succeeded, failed, canceled }) {
@@ -681,6 +1052,7 @@ els.searchInput.addEventListener('input', handleSearchInput);
 
 els.modeDelete.addEventListener('click', () => setMode('delete'));
 els.modeMove.addEventListener('click', () => setMode('move'));
+els.modeContext.addEventListener('click', () => setMode('context'));
 
 els.confirmYes.addEventListener('click', performDelete);
 els.confirmNo.addEventListener('click', hideDeleteConfirmation);
@@ -699,6 +1071,17 @@ els.previewClose.addEventListener('click', hidePreviewModal);
 els.previewOpen.addEventListener('click', () => {
   if (els.previewOpen.dataset.id) openInTab(els.previewOpen.dataset.id);
 });
+
+// Context builder event wiring
+els.contextConvList.addEventListener('click', handleContextConvListClick);
+els.contextConvList.addEventListener('change', handleContextExchangeChange);
+els.contextSelectAll.addEventListener('click', handleContextSelectAll);
+els.contextDeselectAll.addEventListener('click', handleContextDeselectAll);
+els.contextFormatGroup.addEventListener('click', handleContextFormatClick);
+els.contextTemplateGroup.addEventListener('click', handleContextTemplateClick);
+els.contextSend.addEventListener('click', sendToNewChat);
+els.contextCopy.addEventListener('click', copyContextToClipboard);
+els.contextClose.addEventListener('click', hideContextModal);
 
 loadConversations();
 loadProjectTags();

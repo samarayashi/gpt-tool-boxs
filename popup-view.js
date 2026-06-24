@@ -9,6 +9,7 @@ export const els = {
   totalInfo: document.getElementById('total-info'),
   modeDelete: document.getElementById('mode-delete'),
   modeMove: document.getElementById('mode-move'),
+  modeContext: document.getElementById('mode-context'),
   confirmModal: document.getElementById('confirm-modal'),
   confirmMessage: document.getElementById('confirm-message'),
   confirmYes: document.getElementById('btn-confirm-yes'),
@@ -29,6 +30,16 @@ export const els = {
   previewModalBody: document.getElementById('preview-modal-body'),
   previewOpen: document.getElementById('btn-preview-open'),
   previewClose: document.getElementById('btn-preview-close'),
+  contextModal: document.getElementById('context-modal'),
+  contextModalTitle: document.getElementById('context-modal-title'),
+  contextConvList: document.getElementById('context-conv-list'),
+  contextFormatGroup: document.getElementById('context-format-group'),
+  contextTemplateGroup: document.getElementById('context-template-group'),
+  contextSend: document.getElementById('btn-context-send'),
+  contextCopy: document.getElementById('btn-context-copy'),
+  contextClose: document.getElementById('btn-context-close'),
+  contextSelectAll: document.getElementById('btn-context-select-all'),
+  contextDeselectAll: document.getElementById('btn-context-deselect-all'),
 };
 
 const STATUS_AUTO_HIDE_MS = 3500;
@@ -191,6 +202,7 @@ export function updatePreviewStyleSwitch({ style, isBusy }) {
 }
 
 export function showPreviewModal(id, summaryState) {
+  els.previewModal.classList.remove('context-full-view');
   els.previewModalTitle.textContent =
     summaryState && !summaryState.error ? summaryState.title : 'Preview';
   // The modal has its own footer "Open full chat" button; drop the inline one.
@@ -205,16 +217,20 @@ export function showPreviewModal(id, summaryState) {
 
 export function hidePreviewModal() {
   els.previewModal.classList.add('hidden');
+  els.previewModal.classList.remove('context-full-view');
 }
 
 export function updateModeSwitch({ mode, isBusy }) {
-  const isDelete = mode === 'delete';
-  els.modeDelete.classList.toggle('active', isDelete);
-  els.modeMove.classList.toggle('active', !isDelete);
-  els.modeDelete.setAttribute('aria-selected', String(isDelete));
-  els.modeMove.setAttribute('aria-selected', String(!isDelete));
-  els.modeDelete.disabled = isBusy;
-  els.modeMove.disabled = isBusy;
+  [
+    { el: els.modeDelete, key: 'delete' },
+    { el: els.modeMove, key: 'move' },
+    { el: els.modeContext, key: 'context' },
+  ].forEach(({ el, key }) => {
+    const active = mode === key;
+    el.classList.toggle('active', active);
+    el.setAttribute('aria-selected', String(active));
+    el.disabled = isBusy;
+  });
 }
 
 export function updateToolbar({
@@ -238,7 +254,7 @@ export function updateToolbar({
   els.loadAllButton.textContent = isLoadingAll ? 'Loading...' : 'Load All';
 
   const btn = els.primaryButton;
-  btn.classList.remove('btn-danger', 'btn-move', 'btn-cancel-action');
+  btn.classList.remove('btn-danger', 'btn-move', 'btn-cancel-action', 'btn-context');
 
   if (isDeleting) {
     btn.disabled = false;
@@ -252,10 +268,14 @@ export function updateToolbar({
     btn.disabled = count === 0;
     btn.textContent = count ? `Delete Selected (${count})` : 'Delete Selected';
     btn.classList.add('btn-danger');
-  } else {
+  } else if (mode === 'move') {
     btn.disabled = count === 0;
     btn.textContent = count ? `Move to Project (${count})` : 'Move to Project';
     btn.classList.add('btn-move');
+  } else {
+    btn.disabled = count === 0;
+    btn.textContent = count ? `Build Context (${count})` : 'Build Context';
+    btn.classList.add('btn-context');
   }
 
   els.selectAll.disabled = isBusy;
@@ -406,7 +426,15 @@ function createConversationItem(conversation, selectedIds) {
   date.className = 'conv-date';
   date.textContent = formatDate(conversation.update_time || conversation.create_time);
 
-  item.append(checkbox, main, date);
+  const renameBtn = document.createElement('button');
+  renameBtn.type = 'button';
+  renameBtn.className = 'conv-rename';
+  renameBtn.dataset.action = 'rename';
+  renameBtn.dataset.id = conversation.id;
+  renameBtn.title = 'Rename';
+  renameBtn.textContent = '✎';
+
+  item.append(checkbox, main, date, renameBtn);
   return item;
 }
 
@@ -422,4 +450,193 @@ function formatDate(isoString) {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+// --- Context Builder ---
+
+export function showContextModal(count) {
+  const label = `${count} conversation${count === 1 ? '' : 's'}`;
+  els.contextModalTitle.textContent = `Build Context — ${label}`;
+  els.contextModal.classList.remove('hidden');
+}
+
+export function hideContextModal() {
+  els.contextModal.classList.add('hidden');
+}
+
+// items: [{ id, title, status:'loading'|'ready'|'error', exchanges, error, expanded, checked:Set<number> }]
+export function renderContextConvList(items) {
+  if (items.length === 0) {
+    const msg = document.createElement('div');
+    msg.className = 'context-placeholder';
+    msg.textContent = 'No conversations selected.';
+    els.contextConvList.replaceChildren(msg);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  items.forEach(({ id, title, status, exchanges, error, expanded, checked }) => {
+    const section = document.createElement('div');
+    section.className = 'context-conv-section';
+    section.dataset.id = id;
+
+    // Header row
+    const header = document.createElement('div');
+    header.className = 'context-conv-header';
+    header.dataset.action = 'toggle';
+    header.dataset.id = id;
+
+    const arrow = document.createElement('span');
+    arrow.className = 'context-conv-toggle';
+    arrow.textContent = expanded ? '▾' : '▸';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'context-conv-title';
+    titleEl.textContent = title;
+    titleEl.title = title;
+
+    header.append(arrow, titleEl);
+
+    if (status === 'ready') {
+      const checkedCount = exchanges.filter((_, i) => checked.has(i)).length;
+      const allChecked = exchanges.length > 0 && checkedCount === exchanges.length;
+
+      const countLabel = document.createElement('span');
+      countLabel.className = 'context-count-label';
+      countLabel.textContent = `${checkedCount}/${exchanges.length}`;
+
+      const viewBtn = document.createElement('button');
+      viewBtn.type = 'button';
+      viewBtn.className = 'context-toggle-all';
+      viewBtn.dataset.action = 'view';
+      viewBtn.dataset.id = id;
+      viewBtn.textContent = 'View';
+
+      const toggleAll = document.createElement('button');
+      toggleAll.type = 'button';
+      toggleAll.className = 'context-toggle-all';
+      toggleAll.dataset.action = 'toggle-all';
+      toggleAll.dataset.id = id;
+      toggleAll.textContent = allChecked ? 'None' : 'All';
+
+      header.append(countLabel, viewBtn, toggleAll);
+    } else {
+      const statusLabel = document.createElement('span');
+      statusLabel.className = 'context-status-label';
+      statusLabel.textContent = status === 'loading' ? 'Loading…' : 'Error';
+      header.append(statusLabel);
+    }
+
+    section.append(header);
+
+    // Body (shown when expanded)
+    if (expanded) {
+      const body = document.createElement('div');
+      body.className = 'context-conv-body';
+
+      if (status === 'loading') {
+        const ph = document.createElement('div');
+        ph.className = 'context-placeholder';
+        ph.textContent = 'Loading conversation…';
+        body.append(ph);
+      } else if (status === 'error') {
+        const ph = document.createElement('div');
+        ph.className = 'context-placeholder error';
+        ph.textContent = error || 'Failed to load.';
+        body.append(ph);
+      } else if (exchanges.length === 0) {
+        const ph = document.createElement('div');
+        ph.className = 'context-placeholder';
+        ph.textContent = 'No messages found.';
+        body.append(ph);
+      } else {
+        exchanges.forEach(({ user, assistant }, idx) => {
+          const row = document.createElement('label');
+          row.className = 'context-exchange';
+
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = checked.has(idx);
+          cb.dataset.action = 'check-exchange';
+          cb.dataset.id = id;
+          cb.dataset.idx = String(idx);
+
+          const content = document.createElement('div');
+          content.className = 'context-exchange-content';
+
+          if (user) {
+            const u = document.createElement('div');
+            u.className = 'context-msg context-msg-user';
+            u.textContent = clipText(user.text, 180);
+            content.append(u);
+          }
+          if (assistant) {
+            const a = document.createElement('div');
+            a.className = 'context-msg context-msg-assistant';
+            a.textContent = clipText(assistant.text, 180);
+            content.append(a);
+          }
+
+          row.append(cb, content);
+          body.append(row);
+        });
+      }
+
+      section.append(body);
+    }
+
+    fragment.append(section);
+  });
+
+  els.contextConvList.replaceChildren(fragment);
+}
+
+export function setContextOptActive(groupEl, value) {
+  groupEl.querySelectorAll('.context-opt-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.value === value);
+  });
+}
+
+// Opens the preview modal with all exchanges shown in full (no clipping).
+export function showContextFullView(title, exchanges) {
+  els.previewModalTitle.textContent = title;
+
+  const nodes = [];
+
+  if (exchanges.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'preview-loading';
+    empty.textContent = 'No messages found.';
+    nodes.push(empty);
+  } else {
+    exchanges.forEach(({ user, assistant }, idx) => {
+      if (user) nodes.push(buildFullViewSection(`You (${idx + 1})`, user.text));
+      if (assistant) nodes.push(buildFullViewSection('ChatGPT', assistant.text));
+    });
+  }
+
+  els.previewModalBody.replaceChildren(...nodes);
+  els.previewOpen.dataset.id = '';
+  els.previewOpen.classList.add('hidden');
+  // Mark modal so CSS removes per-message max-height caps (single outer scroll).
+  els.previewModal.classList.add('context-full-view');
+  els.previewModal.classList.remove('hidden');
+}
+
+function buildFullViewSection(label, text) {
+  const section = document.createElement('div');
+  section.className = 'preview-section';
+  const head = document.createElement('div');
+  head.className = 'preview-role';
+  head.textContent = label;
+  const body = document.createElement('div');
+  body.className = 'preview-text';
+  body.textContent = text;
+  section.append(head, body);
+  return section;
+}
+
+function clipText(text, maxLen) {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
 }

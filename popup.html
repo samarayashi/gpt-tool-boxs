@@ -13,6 +13,7 @@
     <div class="mode-switch" role="tablist" aria-label="Mode">
       <button id="mode-delete" class="mode-btn active" type="button" role="tab" aria-selected="true">Delete</button>
       <button id="mode-move" class="mode-btn" type="button" role="tab" aria-selected="false">Move to Project</button>
+      <button id="mode-context" class="mode-btn" type="button" role="tab" aria-selected="false">Build Context</button>
     </div>
 
     <div id="status-bar" class="status-bar hidden" role="status" aria-live="polite"></div>
@@ -101,6 +102,46 @@
       <div class="modal-actions">
         <button id="btn-preview-open" class="btn-secondary" type="button">Open full chat ↗</button>
         <button id="btn-preview-close" class="btn-cancel" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="context-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="context-modal-title">
+    <div class="modal-content modal-content-wide context-modal-content">
+      <div class="context-header">
+        <p id="context-modal-title" class="modal-title">Build Context</p>
+        <div class="context-expand-controls">
+          <button id="btn-context-select-all" class="btn-secondary btn-sm" type="button">Select All</button>
+          <button id="btn-context-deselect-all" class="btn-secondary btn-sm" type="button">Deselect All</button>
+        </div>
+      </div>
+
+      <div id="context-conv-list" class="context-conv-list"></div>
+
+      <div class="context-options">
+        <div class="context-option-row">
+          <span class="context-option-label">Format:</span>
+          <div class="context-option-buttons" id="context-format-group" role="group" aria-label="Output format">
+            <button class="context-opt-btn active" data-value="markdown" type="button">Markdown</button>
+            <button class="context-opt-btn" data-value="xml" type="button">XML</button>
+            <button class="context-opt-btn" data-value="plain" type="button">Plain</button>
+          </div>
+        </div>
+        <div class="context-option-row">
+          <span class="context-option-label">Template:</span>
+          <div class="context-option-buttons" id="context-template-group" role="group" aria-label="Prompt template">
+            <button class="context-opt-btn active" data-value="none" type="button">None</button>
+            <button class="context-opt-btn" data-value="summarize" type="button">Summarize</button>
+            <button class="context-opt-btn" data-value="outline" type="button">Outline</button>
+            <button class="context-opt-btn" data-value="reorganize" type="button">Reorganize</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btn-context-send" class="btn-primary-action btn-move" type="button">Send to New Chat</button>
+        <button id="btn-context-copy" class="btn-primary-action btn-context" type="button">Copy</button>
+        <button id="btn-context-close" class="btn-cancel" type="button">Close</button>
       </div>
     </div>
   </div>

@@ -314,3 +314,66 @@ body: { "gizmo_id": "g-p-..." }
 - **Phase 2 — UI**：✅ 完成。模式切換、專案選擇器、移動流程、進度/取消/結果訊息。
 - **Phase 3 — 新建專案**：✅ 完成。選擇器內輸入名稱 → `createProject` → 移入。
 - **Phase 4 — 收尾**：✅ 程式完成（README、manifest 改名 v1.1.0）。**待人工**：在 Chrome `Load unpacked` 對真實帳號點測完整流程（驗收條件 §10）。
+- **Phase 5 — Context Builder**：✅ 程式完成（v1.2.0）。**待人工**：Load unpacked 點測完整流程（見 §12 驗收條件）。
+
+---
+
+## 12. Context Builder 規格（v1.2.0）
+
+### 12.1 背景與目標
+ChatGPT 對話是孤島——無法把對話 A 的推論、對話 B 的資料直接帶入對話 C。
+本功能讓使用者選取多個對話，在 popup 內組裝成結構化的 context 素材（Markdown / XML / Plain），
+複製到剪貼簿後貼入任何對話使用。
+
+### 12.2 使用者流程
+1. 在主清單勾選 1~N 個對話。
+2. 切到 **Build Context** 模式（第三個分段按鈕）。
+3. 點主按鈕 `Build Context (N)` 開啟 Context Builder modal。
+4. modal 同步非同步拉取每個對話的完整訊息（`GET /conversation/{id}`），各自顯示 loading → ready。
+5. 對話預設**收合**；可點標題列展開，顯示所有 Q&A 交換訊息（exchange）。
+6. 每個 exchange（user + assistant 一對）有獨立勾選框，預設**全選**。
+   - 標題列右側顯示 `已選/總數` 與 `All / None` 快速切換。
+7. Expand All / Collapse All 按鈕控制全部展開 / 收合。
+8. 選擇**格式**（Markdown / XML / Plain，預設 Markdown）。
+9. 選擇**樣板**（None / Summarize / Outline / Reorganize，預設 None）。
+10. 點 **Copy to Clipboard** 組裝輸出並複製。
+
+### 12.3 輸出結構
+
+**格式選項**
+
+| 格式     | 包裝方式 |
+|----------|---------|
+| Markdown | `## From: "標題"` + `**You:**` / `**ChatGPT:**` |
+| XML      | `<context><conversation title="…"><exchange><user>…</user><assistant>…</assistant></exchange>…` |
+| Plain    | `=== From: "標題" ===` + `[You]` / `[ChatGPT]` |
+
+**樣板選項**（附加在 context block 之後）
+
+| 樣板       | 附加文字 |
+|-----------|---------|
+| None       | 無（純 context block） |
+| Summarize  | "Please summarize the key points and insights from the above conversations." |
+| Outline    | "…please create a structured outline of the main topics and ideas discussed." |
+| Reorganize | "…synthesize and reorganize the information…into a clear, coherent summary." |
+
+### 12.4 API
+- 沿用既有 `GET /backend-api/conversation/{id}` (`fetchConversationDetail`)。
+- 新增工具函數：`getAllMessages(detail)` 取出所有 user/assistant 訊息（按時間排序）；`groupIntoExchanges(messages)` 組成 exchange 對。
+- 不新增任何 API 端點；不向第三方送任何資料。
+
+### 12.5 非功能需求
+- 不重複抓取：同一 id 已有 `status:'ready'` 時不再請求。
+- 展開 / 勾選狀態在 modal 開關之間保留（popup session 內）。
+- 不干擾既有「刪除」與「移至專案」流程（共用 selectedIds、互不干擾狀態）。
+
+### 12.6 驗收條件
+- [ ] 第三個模式按鈕可切換；切換後不清空勾選。
+- [ ] `Build Context (N)` 主按鈕在 context 模式 + 已選對話時可點。
+- [ ] modal 開啟後非同步載入各對話，各自顯示 loading / ready / error。
+- [ ] 展開後可見所有 exchange；勾選控制哪些被帶入輸出。
+- [ ] All / None 切換正確；Expand All / Collapse All 正確。
+- [ ] Markdown / XML / Plain 三種格式輸出正確；樣板文字正確附加。
+- [ ] Copy to Clipboard 成功後顯示「Copied to clipboard!」。
+- [ ] 無選取任何 exchange 時 Copy 顯示提示而非空字串。
+- [ ] 不影響刪除 / 移至專案模式的行為。

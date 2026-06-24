@@ -132,6 +132,12 @@ export async function deleteConversation(token, conversationId, { signal } = {})
   });
 }
 
+export async function renameConversation(token, conversationId, title) {
+  return patchConversation(token, conversationId, { title }, {
+    errorMessage: `Failed to rename conversation ${conversationId}.`,
+  });
+}
+
 export async function moveConversationToProject(token, conversationId, gizmoId, { signal } = {}) {
   return patchConversation(token, conversationId, { gizmo_id: gizmoId }, {
     signal,
@@ -175,6 +181,114 @@ export async function fetchProjects(token) {
   } while (cursor && page < PROJECTS_MAX_PAGES);
 
   return projects;
+}
+
+// Returns all user+assistant text messages in chronological order.
+export function getAllMessages(detail) {
+  return Object.values(detail?.mapping || {})
+    .filter(
+      (node) =>
+        node.message &&
+        (node.message.author?.role === 'user' || node.message.author?.role === 'assistant') &&
+        node.message.content?.content_type === 'text'
+    )
+    .map((node) => ({
+      role: node.message.author.role,
+      time: node.message.create_time || 0,
+      text: (node.message.content.parts || [])
+        .filter((part) => typeof part === 'string')
+        .join('\n')
+        .trim(),
+    }))
+    .filter((m) => m.text.length > 0)
+    .sort((a, b) => a.time - b.time);
+}
+
+// Creates a new ChatGPT conversation with prompt as the first user message.
+// Returns the conversation_id parsed from the SSE stream, then opens chatgpt.com/c/<id>.
+export async function createNewConversation(token, prompt) {
+  const res = await fetch(`${API_BASE}/conversation`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      action: 'next',
+      messages: [
+        {
+          id: crypto.randomUUID(),
+          author: { role: 'user' },
+          content: { content_type: 'text', parts: [prompt] },
+          metadata: {},
+        },
+      ],
+      model: 'auto',
+      parent_message_id: crypto.randomUUID(),
+      conversation_id: null,
+      history_and_training_disabled: false,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = new Error(`Failed to create conversation (HTTP ${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+
+  // Parse SSE stream until we find conversation_id.
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') break;
+
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.conversation_id) {
+            return parsed.conversation_id;
+          }
+        } catch {
+          // ignore malformed lines
+        }
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+
+  throw new Error('Could not find conversation ID in the response stream.');
+}
+
+// Groups a flat message array into { user, assistant } exchange pairs.
+export function groupIntoExchanges(messages) {
+  const exchanges = [];
+  let i = 0;
+  while (i < messages.length) {
+    if (messages[i].role === 'user') {
+      const next = messages[i + 1];
+      const assistant = next?.role === 'assistant' ? next : null;
+      exchanges.push({ user: messages[i], assistant });
+      i += assistant ? 2 : 1;
+    } else {
+      exchanges.push({ user: null, assistant: messages[i] });
+      i++;
+    }
+  }
+  return exchanges;
 }
 
 // memoryScope: 'global' (shared global memory) or 'project_v2' (project-only context).
