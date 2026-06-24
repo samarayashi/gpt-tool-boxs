@@ -4,7 +4,10 @@ export const MOVE_CONCURRENCY = 5;
 
 const API_BASE = 'https://chatgpt.com/backend-api';
 const SESSION_URL = 'https://chatgpt.com/api/auth/session';
-const PROJECTS_PAGE_LIMIT = 100;
+// limit must be <= 50 (server returns HTTP 422 otherwise); conversations_per_gizmo=0
+// skips the per-project conversation previews we don't need.
+const PROJECTS_PAGE_LIMIT = 50;
+const PROJECTS_CONVERSATIONS_PER_GIZMO = 0;
 const PROJECTS_MAX_PAGES = 20;
 const DEBUG_API = false;
 
@@ -104,7 +107,7 @@ export async function fetchProjects(token) {
   do {
     const url = new URL(`${API_BASE}/gizmos/snorlax/sidebar`);
     url.searchParams.set('owned_only', 'true');
-    url.searchParams.set('conversations_per_gizmo', '0');
+    url.searchParams.set('conversations_per_gizmo', PROJECTS_CONVERSATIONS_PER_GIZMO);
     url.searchParams.set('limit', PROJECTS_PAGE_LIMIT);
     if (cursor) {
       url.searchParams.set('cursor', cursor);

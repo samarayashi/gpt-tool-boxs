@@ -19,11 +19,13 @@ import {
   getMemoryScope,
   hideProjectModal,
   hideStatus,
+  isInProject,
   renderList,
   renderProjectList,
   setLoadingMessage,
   setNewProjectFormVisible,
   setProjectListMessage,
+  setProjectNameMap,
   showDeleteConfirmation,
   showProjectModal,
   showStatus,
@@ -52,6 +54,7 @@ const state = {
   projects: [],
   projectsLoaded: false,
   pickerChoice: null,
+  hideInProject: false,
 };
 
 function isBusy() {
@@ -64,8 +67,10 @@ function matchesSearch(conversation, query) {
 
 function refreshFilteredConversations() {
   const query = getSearchQuery();
-  state.filteredConversations = state.conversations.filter((conversation) =>
-    matchesSearch(conversation, query)
+  state.filteredConversations = state.conversations.filter(
+    (conversation) =>
+      matchesSearch(conversation, query) &&
+      (!state.hideInProject || !isInProject(conversation))
   );
 }
 
@@ -342,23 +347,54 @@ function openProjectPicker() {
   loadProjects();
 }
 
+// Fetches projects into state and refreshes the gizmo_id -> name map used for row tags.
+async function ensureProjects({ force = false } = {}) {
+  if (state.projectsLoaded && !force) return state.projects;
+
+  const token = await getAccessToken();
+  state.projects = await fetchProjects(token);
+  state.projectsLoaded = true;
+  setProjectNameMap(new Map(state.projects.map((p) => [p.id, p.name])));
+  return state.projects;
+}
+
 async function loadProjects({ force = false } = {}) {
   if (state.projectsLoaded && !force) {
-    renderProjectList(state.projects, { selectedId: getSelectedProjectId(), query: '' });
+    renderProjectList(state.projects, { selectedId: getSelectedProjectId(), query: getProjectQuery() });
     return;
   }
 
   setProjectListMessage('Loading projects...');
 
   try {
-    const token = await getAccessToken();
-    state.projects = await fetchProjects(token);
-    state.projectsLoaded = true;
+    await ensureProjects({ force });
     renderProjectList(state.projects, { selectedId: getSelectedProjectId(), query: getProjectQuery() });
   } catch (err) {
     setProjectListMessage(`${err.message} (click to retry)`);
     els.projectList.querySelector('.loading')?.addEventListener('click', () => loadProjects({ force: true }), { once: true });
   }
+}
+
+// Load projects in the background on startup so rows can show their project tag,
+// then re-render the list. Failure is non-fatal (tags fall back to a generic label).
+async function loadProjectTags() {
+  try {
+    await ensureProjects();
+    if (state.conversations.length > 0) {
+      renderList(state.filteredConversations, state.selectedIds);
+    }
+  } catch {
+    // Ignore: tags simply won't show project names.
+  }
+}
+
+function handleHideInProjectChange() {
+  if (isBusy()) return;
+
+  state.hideInProject = els.hideInProject.checked;
+  refreshFilteredConversations();
+  renderList(state.filteredConversations, state.selectedIds);
+  updateViewState();
 }
 
 function getSelectedProjectId() {
@@ -557,5 +593,7 @@ els.newProjectToggle.addEventListener('click', handleNewProjectToggle);
 els.newProjectName.addEventListener('input', handleNewProjectInput);
 els.projectConfirm.addEventListener('click', handleProjectConfirm);
 els.projectCancel.addEventListener('click', hideProjectModal);
+els.hideInProject.addEventListener('change', handleHideInProjectChange);
 
 loadConversations();
+loadProjectTags();

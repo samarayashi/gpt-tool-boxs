@@ -37,6 +37,10 @@
    - **新建一個專案**（在擴充功能內輸入名稱建立）後移入。
 4. 批次移動沿用既有的「並行佇列 + 進度 + 可取消 + 部分失敗統計」機制。
 5. 移動成功的對話，從目前清單移除（與刪除後行為一致，因為移入專案後就不在 root 最近清單）。
+6.（追加）**專案 tag**：清單中已屬於某專案的對話（`gizmo_id` 為 `g-p-…`）顯示該專案名稱的小標籤，刪除/移動兩模式皆顯示。專案名由 `fetchProjects` 的 id→name 對照取得（啟動時背景載入）。
+7.（追加）**過濾「已在專案內」**：提供「Hide conversations already in a project」勾選，勾選時濾掉 `gizmo_id` 為 `g-p-…` 的對話，避免誤刪或重複移動專案內的內容。
+
+> 依據：root `GET /conversations` 的每筆對話帶 `gizmo_id`（HAR 實測 28 筆中 3 筆非空）。`g-p-…`＝專案（snorlax），`g-<hex>`＝自訂 GPT。僅 `g-p-…` 視為「在專案內」。
 
 ### 2.2 本期不做（Out of scope）
 - 從專案中「移出」對話、在專案之間搬移、重新命名／刪除專案。
@@ -166,7 +170,7 @@ GET /backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=
 ```
 - **⚠️ 雙層巢狀**：專案 id = `items[].gizmo.gizmo.id`，名稱 = `items[].gizmo.gizmo.display.name`。（逆向文件寫的單層 `items[].gizmo.id` 與實機不符，以此為準。）
 - 防禦性過濾 `items[].gizmo.gizmo.gizmo_type === 'snorlax'`（HAR 中 `owned_only=true` 回傳的 8 筆全為 snorlax，自訂 GPT 不在其中）。
-- 查詢參數：實機為 `owned_only=true&conversations_per_gizmo=5&limit=20`。本工具建議改為 `conversations_per_gizmo=0`（不需要每專案的對話預覽）、`limit=100`（一次抓多一點）。
+- 查詢參數：`owned_only=true&conversations_per_gizmo=0&limit=50`。**`limit` 上限為 50**（`limit=100` 實測回 HTTP 422：`{"detail":[{"loc":["query","limit"],"msg":"Input should be less than or equal to 50"}]}`）。`conversations_per_gizmo=0` 合法（422 未對它報錯），用來略過不需要的對話預覽。
 - **分頁**：回應 `cursor` 為 `null` 表示已到底；非 null 時帶 `cursor=<值>` 續抓直到 null。HAR 中 8 個專案 < limit，cursor=null。
 
 ### 6.2 ✅ 列出某專案內對話（實機 HAR 驗證；本期非必要，先列備用）

@@ -4,6 +4,7 @@ export const els = {
   loadAllButton: document.getElementById('btn-load-all'),
   primaryButton: document.getElementById('btn-primary'),
   searchInput: document.getElementById('search-input'),
+  hideInProject: document.getElementById('hide-in-project'),
   statusBar: document.getElementById('status-bar'),
   totalInfo: document.getElementById('total-info'),
   modeDelete: document.getElementById('mode-delete'),
@@ -25,6 +26,25 @@ export const els = {
 
 const STATUS_AUTO_HIDE_MS = 3500;
 let statusTimer = null;
+
+// gizmo_id -> project name, used to tag conversations that live in a project.
+let projectNameMap = new Map();
+
+export function setProjectNameMap(map) {
+  projectNameMap = map || new Map();
+}
+
+// A conversation belongs to a project when its gizmo_id is a snorlax project id (g-p-...).
+// Custom-GPT chats use g-<hex> ids and are not treated as "in a project".
+export function isInProject(conversation) {
+  const gid = conversation.gizmo_id;
+  return typeof gid === 'string' && gid.startsWith('g-p-');
+}
+
+function getProjectTagName(conversation) {
+  if (!isInProject(conversation)) return null;
+  return projectNameMap.get(conversation.gizmo_id) || 'Project';
+}
 
 export function getSearchQuery() {
   return els.searchInput.value.toLowerCase().trim();
@@ -261,16 +281,29 @@ function createConversationItem(conversation, selectedIds) {
   checkbox.type = 'checkbox';
   checkbox.checked = selectedIds.has(conversation.id);
 
+  const main = document.createElement('div');
+  main.className = 'conv-main';
+
   const title = document.createElement('span');
   title.className = 'conv-title';
   title.title = getConversationTitle(conversation);
   title.textContent = getConversationTitle(conversation);
+  main.append(title);
+
+  const tagName = getProjectTagName(conversation);
+  if (tagName) {
+    const tag = document.createElement('span');
+    tag.className = 'conv-tag';
+    tag.textContent = `📁 ${tagName}`;
+    tag.title = `In project: ${tagName}`;
+    main.append(tag);
+  }
 
   const date = document.createElement('span');
   date.className = 'conv-date';
   date.textContent = formatDate(conversation.update_time || conversation.create_time);
 
-  item.append(checkbox, title, date);
+  item.append(checkbox, main, date);
   return item;
 }
 
