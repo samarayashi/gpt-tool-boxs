@@ -578,7 +578,17 @@ export function renderContextConvList(items) {
             content.append(a);
           }
 
-          row.append(cb, content);
+          // Per-exchange "view full" button (pops up this single exchange).
+          const expandBtn = document.createElement('button');
+          expandBtn.type = 'button';
+          expandBtn.className = 'context-exchange-expand';
+          expandBtn.dataset.action = 'view-exchange';
+          expandBtn.dataset.id = id;
+          expandBtn.dataset.idx = String(idx);
+          expandBtn.title = 'View full message';
+          expandBtn.textContent = '⤢';
+
+          row.append(cb, content, expandBtn);
           body.append(row);
         });
       }
@@ -600,8 +610,6 @@ export function setContextOptActive(groupEl, value) {
 
 // Opens the preview modal with all exchanges shown in full (no clipping).
 export function showContextFullView(title, exchanges) {
-  els.previewModalTitle.textContent = title;
-
   const nodes = [];
 
   if (exchanges.length === 0) {
@@ -616,6 +624,25 @@ export function showContextFullView(title, exchanges) {
     });
   }
 
+  openFullViewModal(title, nodes);
+}
+
+// Opens the preview modal showing a single exchange (one Q&A pair) in full.
+export function showContextExchangeFullView(title, exchange, idx) {
+  const nodes = [];
+  if (exchange.user) nodes.push(buildFullViewSection(`You (${idx + 1})`, exchange.user.text));
+  if (exchange.assistant) nodes.push(buildFullViewSection('ChatGPT', exchange.assistant.text));
+  if (nodes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'preview-loading';
+    empty.textContent = 'No text in this message.';
+    nodes.push(empty);
+  }
+  openFullViewModal(title, nodes);
+}
+
+function openFullViewModal(title, nodes) {
+  els.previewModalTitle.textContent = title;
   els.previewModalBody.replaceChildren(...nodes);
   els.previewOpen.dataset.id = '';
   els.previewOpen.classList.add('hidden');

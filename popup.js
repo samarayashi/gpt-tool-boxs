@@ -38,6 +38,7 @@ import {
   setProjectListMessage,
   setProjectNameMap,
   showContextFullView,
+  showContextExchangeFullView,
   showDeleteConfirmation,
   showPreviewModal,
   showProjectModal,
@@ -485,6 +486,18 @@ function renderContextBuilder() {
 }
 
 function handleContextConvListClick(event) {
+  // Per-exchange "view full" — pops up just this Q&A pair.
+  const exBtn = event.target.closest('[data-action="view-exchange"]');
+  if (exBtn) {
+    // Prevent the wrapping <label> from toggling its checkbox.
+    event.preventDefault();
+    const { id, idx } = exBtn.dataset;
+    const detail = state.contextConvDetails.get(id);
+    const exchange = detail?.exchanges?.[Number(idx)];
+    if (exchange) showContextExchangeFullView(detail.title, exchange, Number(idx));
+    return;
+  }
+
   // "View" — open full conversation in preview modal.
   const viewBtn = event.target.closest('[data-action="view"]');
   if (viewBtn) {

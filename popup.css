@@ -729,6 +729,31 @@ h1 {
   cursor: pointer;
 }
 
+.context-exchange-expand {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 1px;
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.context-exchange:hover .context-exchange-expand {
+  opacity: 1;
+}
+
+.context-exchange-expand:hover {
+  background: #eef0f4;
+  color: #4338ca;
+}
+
 .context-exchange-content {
   flex: 1;
   min-width: 0;
