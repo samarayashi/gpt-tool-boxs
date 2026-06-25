@@ -76,28 +76,50 @@ function fillAndSend(prompt, autoSubmit) {
 }
 
 // Opens the tab, waits for it to finish loading, injects fillAndSend.
+// The tab is opened in the BACKGROUND so it doesn't steal focus and close the
+// popup (which would kill this in-flight code before injection runs); we
+// activate it only after the prompt is in.
 export async function sendPromptToNewChat(prompt, { autoSubmit = true } = {}) {
-  const tab = await chrome.tabs.create({ url: NEW_CHAT_URL, active: true });
+  const tab = await chrome.tabs.create({ url: NEW_CHAT_URL, active: false });
 
   await waitForTabComplete(tab.id);
 
-  const [result] = await chrome.scripting.executeScript({
+  const injection = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: fillAndSend,
     args: [prompt, autoSubmit],
   });
 
-  return result?.result || 'unknown';
+  // Bring the chat to the foreground now that the prompt is filled/sent.
+  await chrome.tabs.update(tab.id, { active: true });
+
+  return injection?.[0]?.result || 'unknown';
 }
 
-function waitForTabComplete(tabId) {
+// Resolves when the tab has finished loading. Guards against the race where
+// 'complete' fires before we attach the listener (then the event never comes),
+// and falls back after a timeout — the in-page poll handles late mounting.
+function waitForTabComplete(tabId, timeoutMs = 8000) {
   return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timer);
+      resolve();
+    };
+
     const listener = (updatedTabId, info) => {
-      if (updatedTabId === tabId && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
+      if (updatedTabId === tabId && info.status === 'complete') finish();
     };
     chrome.tabs.onUpdated.addListener(listener);
+
+    // If it already finished loading before the listener was attached.
+    chrome.tabs.get(tabId, (tab) => {
+      if (!chrome.runtime.lastError && tab && tab.status === 'complete') finish();
+    });
+
+    const timer = setTimeout(finish, timeoutMs);
   });
 }
