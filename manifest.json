@@ -3,7 +3,7 @@
   "name": "ChatGPT Batch Tools",
   "version": "1.2.0",
   "description": "Batch delete ChatGPT conversations or move them into a project",
-  "permissions": ["declarativeContent"],
+  "permissions": ["declarativeContent", "scripting"],
   "host_permissions": ["https://chatgpt.com/*"],
   "background": {
     "service_worker": "background.js"

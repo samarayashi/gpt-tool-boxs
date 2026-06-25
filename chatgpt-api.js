@@ -204,74 +204,11 @@ export function getAllMessages(detail) {
     .sort((a, b) => a.time - b.time);
 }
 
-// Creates a new ChatGPT conversation with prompt as the first user message.
-// Returns the conversation_id parsed from the SSE stream, then opens chatgpt.com/c/<id>.
-export async function createNewConversation(token, prompt) {
-  const res = await fetch(`${API_BASE}/conversation`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      action: 'next',
-      messages: [
-        {
-          id: crypto.randomUUID(),
-          author: { role: 'user' },
-          content: { content_type: 'text', parts: [prompt] },
-          metadata: {},
-        },
-      ],
-      model: 'auto',
-      parent_message_id: crypto.randomUUID(),
-      conversation_id: null,
-      history_and_training_disabled: false,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = new Error(`Failed to create conversation (HTTP ${res.status})`);
-    err.status = res.status;
-    throw err;
-  }
-
-  // Parse SSE stream until we find conversation_id.
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') break;
-
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.conversation_id) {
-            return parsed.conversation_id;
-          }
-        } catch {
-          // ignore malformed lines
-        }
-      }
-    }
-  } finally {
-    reader.cancel().catch(() => {});
-  }
-
-  throw new Error('Could not find conversation ID in the response stream.');
-}
+// NOTE: Creating a new conversation via POST /conversation is intentionally NOT
+// done here. That endpoint requires a sentinel chat-requirements token plus a
+// proof-of-work token that only ChatGPT's own page JS can produce; a popup fetch
+// returns 403. "Send to New Chat" instead injects the prompt into a real ChatGPT
+// tab and lets the page send it (see inject-prompt.js).
 
 // Groups a flat message array into { user, assistant } exchange pairs.
 export function groupIntoExchanges(messages) {

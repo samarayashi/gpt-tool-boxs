@@ -6,7 +6,6 @@ import {
   fetchConversationDetail,
   fetchProjects,
   createProject,
-  createNewConversation,
   deleteConversation,
   moveConversationToProject,
   renameConversation,
@@ -17,6 +16,7 @@ import {
 } from './chatgpt-api.js';
 import { runWithQueue } from './task-queue.js';
 import { openConversationInBackgroundTab } from './tab-navigation.js';
+import { sendPromptToNewChat } from './inject-prompt.js';
 import {
   appendConversationItems,
   els,
@@ -584,16 +584,23 @@ async function sendToNewChat() {
 
   const btn = els.contextSend;
   const originalText = btn.textContent;
-  btn.textContent = 'Creating…';
+  btn.textContent = 'Opening…';
   btn.disabled = true;
 
   try {
-    const token = await getAccessToken();
-    const conversationId = await createNewConversation(token, output);
-    await chrome.tabs.create({ url: `https://chatgpt.com/c/${conversationId}`, active: true });
-    showStatus('Opened in a new tab.', 'success');
+    // Send is performed by ChatGPT's own page JS (handles sentinel / proof-of-work),
+    // which a popup fetch cannot do — that path returns 403.
+    const result = await sendPromptToNewChat(output, { autoSubmit: true });
+
+    if (result === 'sent') {
+      showStatus('Sent to a new chat.', 'success');
+    } else if (result === 'filled') {
+      showStatus('Prompt filled in a new chat — press Enter to send.', 'info');
+    } else {
+      showStatus('Opened a new chat, but could not fill the prompt. Paste it manually.', 'error');
+    }
   } catch (err) {
-    showStatus(`Failed to create conversation: ${err.message}`, 'error');
+    showStatus(`Failed to open new chat: ${err.message}`, 'error');
   } finally {
     btn.textContent = originalText;
     btn.disabled = false;
