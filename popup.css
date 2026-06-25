@@ -846,3 +846,8 @@ h1 {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.context-status {
+  margin-bottom: 12px;
+  text-align: left;
+}

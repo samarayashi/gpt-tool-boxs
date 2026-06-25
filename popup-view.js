@@ -38,6 +38,7 @@ export const els = {
   contextSend: document.getElementById('btn-context-send'),
   contextCopy: document.getElementById('btn-context-copy'),
   contextClose: document.getElementById('btn-context-close'),
+  contextStatus: document.getElementById('context-status'),
   contextSelectAll: document.getElementById('btn-context-select-all'),
   contextDeselectAll: document.getElementById('btn-context-deselect-all'),
 };
@@ -457,11 +458,39 @@ function formatDate(isoString) {
 export function showContextModal(count) {
   const label = `${count} conversation${count === 1 ? '' : 's'}`;
   els.contextModalTitle.textContent = `Build Context — ${label}`;
+  hideContextStatus();
   els.contextModal.classList.remove('hidden');
 }
 
 export function hideContextModal() {
   els.contextModal.classList.add('hidden');
+  hideContextStatus();
+}
+
+let contextStatusTimer = null;
+
+// Status shown INSIDE the context builder modal (the global status bar would be
+// hidden behind it). Mirrors showStatus' API.
+export function showContextStatus(message, type = 'info', { autoHide = true } = {}) {
+  if (contextStatusTimer) {
+    clearTimeout(contextStatusTimer);
+    contextStatusTimer = null;
+  }
+  els.contextStatus.textContent = message;
+  els.contextStatus.className = `status-bar context-status ${type}`;
+  els.contextStatus.classList.remove('hidden');
+
+  if (autoHide) {
+    contextStatusTimer = setTimeout(hideContextStatus, STATUS_AUTO_HIDE_MS);
+  }
+}
+
+export function hideContextStatus() {
+  if (contextStatusTimer) {
+    clearTimeout(contextStatusTimer);
+    contextStatusTimer = null;
+  }
+  els.contextStatus.classList.add('hidden');
 }
 
 // items: [{ id, title, status:'loading'|'ready'|'error', exchanges, error, expanded, checked:Set<number> }]

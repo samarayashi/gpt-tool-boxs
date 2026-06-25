@@ -39,6 +39,7 @@ import {
   setProjectNameMap,
   showContextFullView,
   showContextExchangeFullView,
+  showContextStatus,
   showDeleteConfirmation,
   showPreviewModal,
   showProjectModal,
@@ -586,6 +587,7 @@ async function sendToNewChat() {
   const originalText = btn.textContent;
   btn.textContent = 'Opening…';
   btn.disabled = true;
+  showContextStatus('Opening a new chat…', 'info', { autoHide: false });
 
   try {
     // Send is performed by ChatGPT's own page JS (handles sentinel / proof-of-work),
@@ -593,14 +595,14 @@ async function sendToNewChat() {
     const result = await sendPromptToNewChat(output, { autoSubmit: true });
 
     if (result === 'sent') {
-      showStatus('Sent to a new chat (opened in a background tab).', 'success');
+      showContextStatus('Sent to a new chat (opened in a background tab).', 'success');
     } else if (result === 'filled') {
-      showStatus('Prompt filled in a new background tab — switch to it and press Enter.', 'info');
+      showContextStatus('Prompt filled in a new background tab — switch to it and press Enter.', 'info');
     } else {
-      showStatus('Opened a new chat, but could not fill the prompt. Paste it manually.', 'error');
+      showContextStatus('Opened a new chat, but could not fill the prompt. Paste it manually.', 'error');
     }
   } catch (err) {
-    showStatus(`Failed to open new chat: ${err.message}`, 'error');
+    showContextStatus(`Failed to open new chat: ${err.message}`, 'error');
   } finally {
     btn.textContent = originalText;
     btn.disabled = false;
@@ -624,14 +626,14 @@ function handleContextTemplateClick(event) {
 async function copyContextToClipboard() {
   const output = assembleContext(state.contextFormat, state.contextTemplate);
   if (!output) {
-    showStatus('No content selected. Expand conversations and check exchanges.', 'info');
+    showContextStatus('No content selected. Expand conversations and check exchanges.', 'info');
     return;
   }
   try {
     await navigator.clipboard.writeText(output);
-    showStatus('Copied to clipboard!', 'success');
+    showContextStatus('Copied to clipboard!', 'success');
   } catch {
-    showStatus('Clipboard write failed. Try again.', 'error');
+    showContextStatus('Clipboard write failed. Try again.', 'error');
   }
 }
 
