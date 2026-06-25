@@ -76,9 +76,9 @@ function fillAndSend(prompt, autoSubmit) {
 }
 
 // Opens the tab, waits for it to finish loading, injects fillAndSend.
-// The tab is opened in the BACKGROUND so it doesn't steal focus and close the
-// popup (which would kill this in-flight code before injection runs); we
-// activate it only after the prompt is in.
+// The tab stays in the BACKGROUND throughout: switching focus to it would close
+// the extension popup and kill this in-flight code before (and after) injection.
+// The user can switch to the new chat tab themselves.
 export async function sendPromptToNewChat(prompt, { autoSubmit = true } = {}) {
   const tab = await chrome.tabs.create({ url: NEW_CHAT_URL, active: false });
 
@@ -89,9 +89,6 @@ export async function sendPromptToNewChat(prompt, { autoSubmit = true } = {}) {
     func: fillAndSend,
     args: [prompt, autoSubmit],
   });
-
-  // Bring the chat to the foreground now that the prompt is filled/sent.
-  await chrome.tabs.update(tab.id, { active: true });
 
   return injection?.[0]?.result || 'unknown';
 }

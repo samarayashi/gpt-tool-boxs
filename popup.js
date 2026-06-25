@@ -593,9 +593,9 @@ async function sendToNewChat() {
     const result = await sendPromptToNewChat(output, { autoSubmit: true });
 
     if (result === 'sent') {
-      showStatus('Sent to a new chat.', 'success');
+      showStatus('Sent to a new chat (opened in a background tab).', 'success');
     } else if (result === 'filled') {
-      showStatus('Prompt filled in a new chat — press Enter to send.', 'info');
+      showStatus('Prompt filled in a new background tab — switch to it and press Enter.', 'info');
     } else {
       showStatus('Opened a new chat, but could not fill the prompt. Paste it manually.', 'error');
     }
